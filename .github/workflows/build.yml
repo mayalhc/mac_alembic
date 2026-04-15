@@ -1,4 +1,4 @@
-name: Build PyAlembic 3.13 (Based on null14 Build Logic)
+name: Build PyAlembic 3.13 (Boost Fix)
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: macos-latest
     
     steps:
-      - name: Checkout Repositories
+      - name: Checkout Source
         run: |
           git clone https://github.com/alembic/alembic.git
           git clone https://github.com/AcademySoftwareFoundation/Imath.git imath
@@ -27,32 +27,26 @@ jobs:
           brew install cmake hdf5 boost boost-python3
           python3 -m pip install numpy
 
-      - name: Build Imath (Core Logic)
+      - name: Build Imath
         run: |
           cd imath
           mkdir build && cd build
-          # null14 스타일: 전용 설치 경로(WORKSPACE/dist) 지정
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
-            -DCMAKE_BUILD_TYPE=Release \
             -DPYIMATH_ENABLE=ON \
             -DPYTHON_EXECUTABLE=$(which python3) \
-            -DIMATH_INSTALL_PKGCONFIGDIR=$GITHUB_WORKSPACE/dist/lib/pkgconfig
+            -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Build Alembic (Core Logic)
+      - name: Build Alembic (Force Boost Python 3.13)
         run: |
           cd alembic
           mkdir build && cd build
           
-          # 3.13 경로 및 Boost 경로 정밀 타격
           PY_PREFIX=$(python3 -c "import sys; print(sys.prefix)")
-          BOOST_PREFIX=$(brew --prefix boost)
-          BOOST_PY_PREFIX=$(brew --prefix boost-python3)
-
+          
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
-            -DCMAKE_BUILD_TYPE=Release \
             -DUSE_PYALEMBIC=ON \
             -DUSE_HDF5=ON \
             -DALEMBIC_SHARED_LIBS=ON \
@@ -60,30 +54,28 @@ jobs:
             -DPYTHON_INCLUDE_DIR=${PY_PREFIX}/include/python3.13 \
             -DPYTHON_LIBRARY=${PY_PREFIX}/lib/libpython3.13.dylib \
             -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
-            -DBOOST_ROOT=${BOOST_PREFIX} \
+            -DBOOST_ROOT=$(brew --prefix boost) \
             -DBoost_NO_BOOST_CMAKE=ON \
-            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/dist;${BOOST_PY_PREFIX}"
+            -DBoost_ARCHITECTURE=-x64 \
+            -DBOOST_LIBRARYDIR=$(brew --prefix boost-python3)/lib \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib") \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/dist;$(brew --prefix boost-python3)" \
+            -DCMAKE_BUILD_TYPE=Release
           
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Finalize Artifacts (Python 3.13 Package)
+      - name: Organize Artifacts
         run: |
-          # Python에서 바로 사용할 수 있도록 패키지 구조 생성
           mkdir -p output/alembic
-          
-          # 1. PyAlembic 컴파일된 바이너리(.so) 복사
-          find $GITHUB_WORKSPACE/dist -name "alembic.so" -exec cp {} output/alembic/ \;
-          find $GITHUB_WORKSPACE/dist -name "imath.so" -exec cp {} output/alembic/ \; || true
-          
-          # 2. Python 래퍼 소스 복사
-          cp -r alembic/python/PyAlembic/* output/alembic/ || true
-          
-          # 3. 런타임 필수 dylib 수집 (Imath, Alembic 등)
           mkdir -p output/libs
+          # 빌드된 바이너리 및 dylib 수집
+          find $GITHUB_WORKSPACE/dist -name "*.so" -exec cp {} output/alembic/ \;
           cp $GITHUB_WORKSPACE/dist/lib/*.dylib output/libs/
+          # 필요한 경우 boost-python dylib도 포함
+          cp $(brew --prefix boost-python3)/lib/libboost_python313*.dylib output/libs/ || true
 
-      - name: Upload PyAlembic 3.13
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: PyAlembic-macOS-Python3.13-Built
+          name: PyAlembic-macOS-3.13-Final
           path: output/
