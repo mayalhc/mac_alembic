@@ -1,47 +1,43 @@
-name: Build PyAlembic (macOS)
+name: Build Alembic Python (macOS)
 
 on:
-  workflow_dispatch: # 수동 실행 버튼
+  workflow_dispatch:
 
 jobs:
-  build-macos:
+  build:
     runs-on: macos-latest
 
     steps:
-      # 1. 내 저장소의 소스 코드를 가져옴 (이미 PyAlembic 폴더가 들어있음)
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # 2. Python 3.13 설정
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.11'
 
-      # 3. 필수 의존성 및 빌드 도구 설치
       - name: Install dependencies
         run: |
-          brew install alembic boost imath cmake
+          brew update
+          brew install boost imath hdf5 cmake
+
           python -m pip install --upgrade pip
-          python -m pip install setuptools wheel numpy
+          python -m pip install numpy
 
-      # 4. 빌드 실행 (working-directory를 사용하여 경로 오류 원천 차단)
-      - name: Build PyAlembic
-        working-directory: ./PyAlembic
+      - name: Clone Alembic
         run: |
-          BREW_PREFIX=$(brew --prefix)
-          
-          # 1. 컴파일러 및 라이브러리 경로 강제 지정
-          export CFLAGS="-I$BREW_PREFIX/include"
-          export LDFLAGS="-L$BREW_PREFIX/lib"
-          
-          # 2. Python 3.13의 경로를 CMake가 확실히 알 수 있게 인자 추가
-          # 특히 Python 3.13의 라이브러리 및 헤더 경로를 명시합니다.
-          export CMAKE_ARGS="-DPYTHON_EXECUTABLE=$(which python3) \
-                             -DPYTHON_INCLUDE_DIR=$(python3 -c 'from sysconfig import get_paths; print(get_paths()[\"include\"])') \
-                             -DPYTHON_LIBRARY=$(python3 -c 'from sysconfig import get_config_var; print(get_config_var(\"LIBDIR\") + \"/\" + get_config_var(\"LDLIBRARY\"))') \
-                             -DALEMBIC_DIR=$BREW_PREFIX \
-                             -DBOOST_ROOT=$BREW_PREFIX"
+          git clone https://github.com/alembic/alembic.git
 
-          # 3. 빌드 실행
-          python3 setup.py bdist_wheel
+      - name: Build Alembic with Python bindings
+        run: |
+          cd alembic
+          mkdir build
+          cd build
+
+          cmake .. \
+            -DUSE_PYALEMBIC=ON \
+            -DPYTHON_EXECUTABLE=$(which python) \
+            -DCMAKE_BUILD_TYPE=Release
+
+          make -j4
+
+      - name: Check result
+        run: |
+          ls -al alembic/build/lib || true
