@@ -1,4 +1,4 @@
-name: Extract Py3.13 Core Libraries (Final)
+name: Extract Py3.13 Core Libraries (Save to Repo)
 
 on:
   push:
@@ -13,14 +13,10 @@ jobs:
     runs-on: macos-latest
     
     steps:
-      - name: Checkout your repo (full history)
+      - name: Checkout your repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # 🔥 중요 (충돌 방지)
-
-      - name: Sync with remote (latest)
-        run: |
-          git pull origin main || true
+          fetch-depth: 0
 
       - name: Clone Imath
         run: git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
@@ -34,50 +30,40 @@ jobs:
         run: |
           brew update
           brew install cmake boost boost-python3
+          python3 -m pip install numpy
 
       - name: Build Imath
         run: |
           cd imath
           mkdir build && cd build
-      
-          PY_INC=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['include'])")
-      
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DCMAKE_BUILD_TYPE=Release \
             -DPYIMATH_ENABLE=ON \
-            -DPython3_EXECUTABLE=$(which python3) \
-            -DPYTHON_INCLUDE_DIR=$PY_INC
-      
-          make -j$(sysctl -n hw.ncpu)
-          make install
+            -DPYTHON_EXECUTABLE=$(which python3)
+          make -j$(sysctl -n hw.ncpu) install
 
-      - name: Copy libs into repo
+      - name: Copy to your repo (PyAlembic)
         run: |
           mkdir -p PyAlembic/libs
 
-          # PyImath
-          cp $GITHUB_WORKSPACE/dist/lib/*PyImath*.dylib PyAlembic/libs/ || true
-
-          # boost python
+          # 🔥 실제 존재하는 것만 복사됨
+          find $GITHUB_WORKSPACE/dist/lib -name "*PyImath*.dylib" -exec cp {} PyAlembic/libs/ \; || true
           find $(brew --prefix boost-python3)/lib -name "libboost_python*.dylib" -exec cp {} PyAlembic/libs/ \;
-
-          # python dylib
+          
           PY_LIB_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
           cp $PY_LIB_DIR/libpython3*.dylib PyAlembic/libs/ || true
 
+          echo "--- RESULT ---"
           ls -l PyAlembic/libs/
 
-      - name: Commit & Push (conflict-safe)
+      - name: Commit & Push
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
 
           git add PyAlembic/libs
-          git commit -m "Add Python 3.13 core libs" || echo "No changes"
+          git commit -m "Add Python 3.13 libs" || echo "No changes"
 
-          # 🔥 충돌 무조건 해결
           git pull --rebase origin main || true
-
-          # 🔥 그래도 막히면 강제 push
           git push origin HEAD:main || git push origin HEAD:main --force
