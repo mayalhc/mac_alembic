@@ -8,34 +8,27 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           brew update
           brew install boost boost-python3 imath hdf5 cmake
-
-          python -m pip install --upgrade pip
-          python -m pip install numpy
+          python -m pip install --upgrade pip numpy
 
       - name: Clone Alembic
-        run: |
-          git clone https://github.com/alembic/alembic.git
+        run: git clone https://github.com/alembic/alembic.git
 
-      - name: Patch Imath (🔥 핵심)
+      - name: Patch Imath
         run: |
           BREW_PREFIX=$(brew --prefix)
-
           mkdir -p $BREW_PREFIX/lib/cmake/Imath
+          echo "add_library(Imath::PyImath INTERFACE IMPORTED)" > $BREW_PREFIX/lib/cmake/Imath/PyImathTargets.cmake
 
-          cat <<EOF > $BREW_PREFIX/lib/cmake/Imath/PyImathTargets.cmake
-add_library(Imath::PyImath INTERFACE IMPORTED)
-EOF
-
-      - name: Build Alembic
+      - name: Build
         run: |
           cd alembic
           mkdir build
@@ -52,6 +45,5 @@ EOF
 
           make -j4
 
-      - name: Check result
-        run: |
-          ls -al alembic/build/lib || true
+      - name: Check
+        run: ls -al alembic/build/lib || true
