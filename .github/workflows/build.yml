@@ -10,41 +10,39 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # 1. 본인 저장소 체크아웃 (워크플로 파일을 읽기 위함)
+      # 1. 본인의 저장소 소스 코드를 체크아웃합니다.
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Python 3.13 및 필수 도구 설치
+      # 2. Python 3.13 및 빌드 도구 설치
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      - name: Install build tools
+      - name: Install dependencies
         run: |
           brew install alembic boost cmake
           python -m pip install --upgrade pip
           python -m pip install setuptools wheel
 
-      # 3. 중요: 빌드할 실제 소스(PyAlembic)를 'py_src' 폴더로 가져오기
-      - name: Clone External PyAlembic Source
-        run: |
-          git clone https://github.com/mayalhc/mac_alembic py_src
-
-      # 4. 'py_src' 폴더 안으로 들어가서 빌드 실행
+      # 3. 직접 만드신 'PyAlembic' 폴더 안에서 빌드를 수행합니다.
       - name: Build Wheel
-        working-directory: ./py_src
+        working-directory: ./PyAlembic
         run: |
-          # 라이브러리 경로 설정
+          # 라이브러리 경로 설정 (macOS brew 환경 대응)
           export CPLUS_INCLUDE_PATH=$(brew --prefix)/include
           export LIBRARY_PATH=$(brew --prefix)/lib
+          
+          # 파일 목록 확인 (로그 확인용)
+          ls -F
           
           # 빌드 실행
           python3 setup.py bdist_wheel
 
-      # 5. 결과물 저장
+      # 4. 결과물 업로드
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PyAlembic-Python3.13-macOS
-          path: py_src/dist/*.whl
+          path: PyAlembic/dist/*.whl
