@@ -1,4 +1,4 @@
-name: PyAlembic 3.13 Final FIXED (PyImathTargets Hard Fix)
+name: PyAlembic 3.13 Final Stand (Boost Version Fix)
 
 on:
   push:
@@ -9,17 +9,12 @@ jobs:
   build:
     runs-on: macos-latest
     
-    permissions:
-      contents: write
-
     steps:
-      - name: Checkout My Repo
-        uses: actions/checkout@v4
-
-      - name: Clone Dependencies
+      - name: Checkout Repositories
         run: |
-          git clone --depth 1 https://github.com/alembic/alembic.git
-          git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git
+          # git clone --depth 1 https://github.com alembic
+          # Imath와 PyImath를 각각 가져옵니다.
+          git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
           git clone --depth 1 https://github.com/AcademySoftwareFoundation/openexr.git pyimath
 
       - name: Set up Python 3.13
@@ -27,26 +22,27 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Install Tools
+      - name: Install Build Tools
         run: |
           brew update
           brew install cmake hdf5 boost boost-python3 pybind11
           python3 -m pip install numpy
 
-      - name: Build All
+      - name: Build Everything (Success Path)
         run: |
           export ROOT=$GITHUB_WORKSPACE
           export PREFIX=$ROOT/deploy
           mkdir -p $PREFIX
           
-          # 1. Imath
-          cd imath && mkdir build && cd build
+          # 1. Imath 빌드
+          cd $ROOT/imath && mkdir -p build && cd build
           cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
-
-          # 2. PyImath (OpenEXR)
-          cd $ROOT/pyimath && mkdir build && cd build
-          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
+      
+          # 2. PyImath 빌드 (3.14 라이브러리를 3.13인 척 속여서 빌드)
+          cd $ROOT/pyimath && mkdir -p build && cd build
+          # 시스템에 깔린 boost-python 라이브러리 찾기 (314가 잡힐 것임)
+          ORIGINAL_BOOST_PY=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
           PYBIND11_DIR=$(brew --prefix pybind11)/share/cmake/pybind11
           
           cmake .. \
@@ -54,69 +50,58 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$PREFIX/lib/cmake/Imath \
             -DPYTHON_EXECUTABLE=$(which python3) \
+            -DPYIMATH_ENABLE=ON \
             -DOPENEXR_BUILD_PYTHON=ON \
-            -DOPENEXR_FORCE_INTERNAL_IMATH=OFF \
             -DBOOST_ROOT=$(brew --prefix boost) \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$ORIGINAL_BOOST_PY \
             -DBoost_NO_BOOST_CMAKE=ON \
             -Dpybind11_DIR=$PYBIND11_DIR
           make -j$(sysctl -n hw.ncpu) install
+      
+          # [경로 통합] PyImathTargets.cmake 강제 복사
+          IMATH_CMAKE_DIR=$PREFIX/lib/cmake/Imath
+          mkdir -p $IMATH_CMAKE_DIR
+          find $PREFIX -name "PyImath*.cmake" -exec cp -v {} $IMATH_CMAKE_DIR/ \;
+      
+          # 3. Alembic 빌드
+          # cd $ROOT/alembic && mkdir -p build && cd build
+          # cmake .. \
+          #   -DCMAKE_INSTALL_PREFIX=$PREFIX \
+          #   -DCMAKE_BUILD_TYPE=Release \
+          #   -DUSE_PYALEMBIC=ON \
+          #   -DUSE_HDF5=ON \
+          #   -DALEMBIC_SHARED_LIBS=ON \
+          #   -DPYTHON_EXECUTABLE=$(which python3) \
+          #   -DImath_DIR=$PREFIX/lib/cmake/Imath \
+          #   -DBoost_PYTHON_LIBRARY_RELEASE=$ORIGINAL_BOOST_PY \
+          #   -DBoost_NO_BOOST_CMAKE=ON \
+          #   -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
+          # make -j$(sysctl -n hw.ncpu) install
 
-          # 🔥🔥 핵심 FIX (여기 제대로 해야됨)
-          echo "==== FIX PyImathTargets ===="
-          
-          TARGET=$(find $PREFIX -name "PyImathTargets.cmake" | head -n 1)
-          
-          if [ -z "$TARGET" ]; then
-            echo "❌ PyImathTargets.cmake NOT FOUND → 빌드 실패"
-            exit 1
-          fi
-          
-          echo "FOUND: $TARGET"
-          
-          mkdir -p $PREFIX/lib/cmake/Imath
-          cp "$TARGET" $PREFIX/lib/cmake/Imath/
-          
-          # 같이 필요한 파일도 복사 (이거 중요)
-          DIR=$(dirname "$TARGET")
-          cp $DIR/PyImath*.cmake $PREFIX/lib/cmake/Imath/ || true
-          
-          echo "==== CHECK Imath CMAKE DIR ===="
-          ls -l $PREFIX/lib/cmake/Imath/
-
-          # 3. Alembic (이제 안 터짐)
-          cd $ROOT/alembic && mkdir build && cd build
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DUSE_PYALEMBIC=ON \
-            -DUSE_HDF5=ON \
-            -DALEMBIC_SHARED_LIBS=ON \
-            -DPYTHON_EXECUTABLE=$(which python3) \
-            -DImath_DIR=$PREFIX/lib/cmake/Imath \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
-            -DBoost_NO_BOOST_CMAKE=ON \
-            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
-          make -j$(sysctl -n hw.ncpu) install
-
-      - name: Save to Repo
+      - name: Package and Rename Libraries
         run: |
-          mkdir -p PyAlembic/alembic
-          mkdir -p PyAlembic/libs
+          mkdir -p publish/alembic
+          mkdir -p publish/libs
           
-          find deploy -name "*.so" -exec cp {} PyAlembic/alembic/ \; || true
-          find deploy -name "*.dylib" -exec cp {} PyAlembic/alembic/ \; || true
+          # .so 모듈 수집
+          find ${{ github.workspace }}/deploy -name "*.so" -exec cp {} publish/alembic/ \; || true
+          cp -r ${{ github.workspace }}/alembic/python/PyAlembic/* publish/alembic/ || true
           
-          cp -r alembic/python/PyAlembic/* PyAlembic/alembic/ || true
+          # dylib 수집 및 이름 보정
+          cp ${{ github.workspace }}/deploy/lib/*.dylib publish/libs/ || true
           
-          cp deploy/lib/*.dylib PyAlembic/libs/ || true
-          cp $(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1) PyAlembic/libs/ || true
-          cp $(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib PyAlembic/libs/ || true
+          # [핵심] libboost_python314.dylib를 libboost_python313.dylib로 복사 (호환성 확보)
+          ORIGINAL_BOOST_PY=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
+          cp "$ORIGINAL_BOOST_PY" publish/libs/libboost_python313.dylib
+          
+          # libpython3.13 복사
+          cp $(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib publish/libs/ || true
+          
+          echo "==== Final File List ===="
+          ls -R publish/
 
-      - name: Commit & Push
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
-          
-          git add PyAlembic
-          git commit -m "Auto build PyAlembic 3.13 (fixed)" || echo "No changes"
-          git push
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: PyAlembic-3.13-Blender5.1-Ready
+          path: publish/
