@@ -75,14 +75,17 @@ jobs:
           mkdir -p build && cd build
 
           cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DUSE_PYALEMBIC=ON \
-            -DUSE_HDF5=ON \
-            -DALEMBIC_SHARED_LIBS=ON \
-            -DPYTHON_EXECUTABLE=$PY_EXE \
-            -DImath_DIR=$PREFIX/lib/cmake/Imath \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
-            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
+            cmake .. \
+              -DCMAKE_INSTALL_PREFIX=$PREFIX \
+              -DUSE_PYALEMBIC=ON \
+              -DUSE_HDF5=ON \
+              -DALEMBIC_SHARED_LIBS=ON \
+              -DPYTHON_EXECUTABLE=$PY_EXE \
+              -DImath_DIR=$PREFIX/lib/cmake/Imath \
+              -DOpenEXR_DIR=$PREFIX/lib/cmake/OpenEXR \
+              -DPyImath_DIR=$PREFIX/lib/cmake/Imath \
+              -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+              -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
 
           make -j$(sysctl -n hw.ncpu) install
 
