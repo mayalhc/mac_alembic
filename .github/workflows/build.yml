@@ -45,12 +45,15 @@ jobs:
           export PREFIX=$ROOT/deploy
           mkdir -p $PREFIX
           
-          # 1. Imath
+          # 1. Imath 빌드
           cd $ROOT/imath && mkdir -p build && cd build
-          cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
-
-          # 2. PyImath (경로 그대로 유지 - 구조 문제는 이후 단계)
+      
+          # 2. PyImath 빌드 (핵심 수정)
           cd $ROOT/pyimath && mkdir -p build && cd build
           BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
           
@@ -59,12 +62,19 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$PREFIX/lib/cmake/Imath \
             -DPYTHON_EXECUTABLE=$(which python3) \
+            -DPYIMATH_ENABLE=ON \
+            -DOPENEXR_BUILD_PYTHON=ON \
             -DBOOST_ROOT=$(brew --prefix boost) \
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
             -DBoost_NO_BOOST_CMAKE=ON
-          make -j$(sysctl -n hw.ncpu) install || true
-
-          # 3. Alembic
+      
+          make -j$(sysctl -n hw.ncpu) install
+      
+          # 확인 (추가)
+          echo "==== CHECK PyImath ===="
+          find $PREFIX -name "PyImathTargets.cmake"
+      
+          # 3. Alembic 빌드
           cd $ROOT/alembic && mkdir -p build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
@@ -76,7 +86,9 @@ jobs:
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
             -DBoost_NO_BOOST_CMAKE=ON \
             -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3)"
+      
           make -j$(sysctl -n hw.ncpu) install
+
 
       - name: Package Final Result
         run: |
