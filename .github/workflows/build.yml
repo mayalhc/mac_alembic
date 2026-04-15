@@ -31,7 +31,7 @@ jobs:
       - name: Clone PyAlembic and Build
         run: |
           # 소스를 'py_src' 폴더에 명확히 다운로드
-          git clone https://github.com py_src
+          git clone https://github.com/mayalhc/mac_alembic py_src
           cd py_src
 
           # macOS 환경에서 brew로 설치된 라이브러리 경로 인식 설정
