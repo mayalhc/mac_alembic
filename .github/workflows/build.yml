@@ -1,4 +1,4 @@
-name: PyAlembic 3.13 Final Stand (Boost Version Fix)
+name: Build PyAlembic 3.13 for Blender 5.1
 
 on:
   push:
@@ -8,9 +8,16 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-    
+    permissions:
+      contents: write
+
     steps:
-      - name: Checkout Repositories
+      - name: Checkout My Repo
+        uses: actions/checkout@v4
+        with:
+          path: main_repo
+
+      - name: Checkout Dependencies
         run: |
           git clone --depth 1 https://github.com/alembic/alembic alembic
           # Imath와 PyImath를 각각 가져옵니다.
@@ -28,80 +35,80 @@ jobs:
           brew install cmake hdf5 boost boost-python3 pybind11
           python3 -m pip install numpy
 
-      - name: Build Everything (Success Path)
+      - name: Build Everything (Force Python 3.13)
         run: |
           export ROOT=$GITHUB_WORKSPACE
           export PREFIX=$ROOT/deploy
           mkdir -p $PREFIX
           
+          # 파이썬 3.13 경로 강제 추출
+          PY_EXE=$(which python3)
+          PY_INC=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
+          PY_LIB=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib
+          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
+
           # 1. Imath 빌드
-          cd $ROOT/imath && mkdir -p build && cd build
+          cd $ROOT/imath && mkdir build && cd build
           cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
-      
-          # 2. PyImath 빌드 (3.14 라이브러리를 3.13인 척 속여서 빌드)
-          cd $ROOT/pyimath && mkdir -p build && cd build
-          # 시스템에 깔린 boost-python 라이브러리 찾기 (314가 잡힐 것임)
-          ORIGINAL_BOOST_PY=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
-          PYBIND11_DIR=$(brew --prefix pybind11)/share/cmake/pybind11
-          
+
+          # 2. OpenEXR/PyImath 빌드 (3.13 강제 고정)
+          cd $ROOT/openexr && mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$PREFIX/lib/cmake/Imath \
-            -DPYTHON_EXECUTABLE=$(which python3) \
+            -DPython3_EXECUTABLE=$PY_EXE \
+            -DPython3_INCLUDE_DIR=$PY_INC \
+            -DPython3_LIBRARY=$PY_LIB \
             -DPYIMATH_ENABLE=ON \
             -DOPENEXR_BUILD_PYTHON=ON \
-            -DBOOST_ROOT=$(brew --prefix boost) \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$ORIGINAL_BOOST_PY \
-            -DBoost_NO_BOOST_CMAKE=ON \
-            -Dpybind11_DIR=$PYBIND11_DIR
+            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+            -Dpybind11_DIR=$(brew --prefix pybind11)/share/cmake/pybind11
           make -j$(sysctl -n hw.ncpu) install
-      
-          # [경로 통합] PyImathTargets.cmake 강제 복사
-          IMATH_CMAKE_DIR=$PREFIX/lib/cmake/Imath
-          mkdir -p $IMATH_CMAKE_DIR
-          find $PREFIX -name "PyImath*.cmake" -exec cp -v {} $IMATH_CMAKE_DIR/ \;
-      
-          # 3. Alembic 빌드
-          cd $ROOT/alembic && mkdir -p build && cd build
+          
+          # Alembic 에러 방지를 위한 설정 파일 복사
+          mkdir -p $PREFIX/lib/cmake/Imath
+          find $PREFIX -name "PyImath*.cmake" -exec cp -v {} $PREFIX/lib/cmake/Imath/ \;
+
+          # 3. Alembic 빌드 (드디어 켬)
+          cd $ROOT/alembic/alembic && mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_BUILD_TYPE=Release \
             -DUSE_PYALEMBIC=ON \
             -DUSE_HDF5=ON \
-            -DALEMBIC_SHARED_LIBS=ON \
-            -DPYTHON_EXECUTABLE=$(which python3) \
+            -DPython3_EXECUTABLE=$PY_EXE \
             -DImath_DIR=$PREFIX/lib/cmake/Imath \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$ORIGINAL_BOOST_PY \
-            -DBoost_NO_BOOST_CMAKE=ON \
-            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
+            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3)"
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Package and Rename Libraries
+      - name: Save Results to PyAlembic Folder
         run: |
-          mkdir -p publish/alembic
-          mkdir -p publish/libs
+          TARGET_DIR="${{ github.workspace }}/main_repo/PyAlembic"
+          LIBS_DIR="$TARGET_DIR/libs"
+          mkdir -p "$LIBS_DIR"
           
-          # .so 모듈 수집
-          find ${{ github.workspace }}/deploy -name "*.so" -exec cp {} publish/alembic/ \; || true
-          cp -r ${{ github.workspace }}/alembic/python/PyAlembic/* publish/alembic/ || true
+          # 1. .so 파일 수집 (314가 섞이지 않도록 필터링 가능하지만 일단 전체 복사)
+          find ${{ github.workspace }}/deploy -name "*.so" -exec cp {} "$TARGET_DIR/" \;
           
-          # dylib 수집 및 이름 보정
-          cp ${{ github.workspace }}/deploy/lib/*.dylib publish/libs/ || true
+          # 2. 이미지에 보인 dylib 파일들 모두 수집
+          find ${{ github.workspace }}/deploy/lib -name "*.dylib" -exec cp {} "$LIBS_DIR/" \;
           
-          # [핵심] libboost_python314.dylib를 libboost_python313.dylib로 복사 (호환성 확보)
+          # 3. Boost 및 Python 핵심 라이브러리 3.13용으로 박제
           ORIGINAL_BOOST_PY=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
-          cp "$ORIGINAL_BOOST_PY" publish/libs/libboost_python313.dylib
+          cp "$ORIGINAL_BOOST_PY" "$LIBS_DIR/libboost_python313.dylib"
+          cp $(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib "$LIBS_DIR/"
           
-          # libpython3.13 복사
-          cp $(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib publish/libs/ || true
-          
-          echo "==== Final File List ===="
-          ls -R publish/
+          # 4. 파이썬 소스 코드 업데이트
+          cp -r ${{ github.workspace }}/alembic/python/PyAlembic/* "$TARGET_DIR/" || true
 
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: PyAlembic-3.13-Blender5.1-Ready
-          path: publish/
+      - name: Commit and Push Changes
+        run: |
+          cd ${{ github.workspace }}/main_repo
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@://github.com"
+          git add PyAlembic/
+          git commit -m "Final Build: PyAlembic 3.13 for Blender 5.1" || echo "No changes"
+          git push origin main
