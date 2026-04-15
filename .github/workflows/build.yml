@@ -29,22 +29,19 @@ jobs:
       - name: Build PyAlembic
         working-directory: ./PyAlembic
         run: |
-          # 라이브러리 경로 설정
           BREW_PREFIX=$(brew --prefix)
+          
+          # 1. 컴파일러 및 라이브러리 경로 강제 지정
           export CFLAGS="-I$BREW_PREFIX/include"
           export LDFLAGS="-L$BREW_PREFIX/lib"
-          export DYLD_LIBRARY_PATH="$BREW_PREFIX/lib"
+          
+          # 2. Python 3.13의 경로를 CMake가 확실히 알 수 있게 인자 추가
+          # 특히 Python 3.13의 라이브러리 및 헤더 경로를 명시합니다.
+          export CMAKE_ARGS="-DPYTHON_EXECUTABLE=$(which python3) \
+                             -DPYTHON_INCLUDE_DIR=$(python3 -c 'from sysconfig import get_paths; print(get_paths()[\"include\"])') \
+                             -DPYTHON_LIBRARY=$(python3 -c 'from sysconfig import get_config_var; print(get_config_var(\"LIBDIR\") + \"/\" + get_config_var(\"LDLIBRARY\"))') \
+                             -DALEMBIC_DIR=$BREW_PREFIX \
+                             -DBOOST_ROOT=$BREW_PREFIX"
 
-          # 파일 확인 (로그에 setup.py가 보여야 성공)
-          ls -F
-
-          # 빌드 및 휠 생성
+          # 3. 빌드 실행
           python3 setup.py bdist_wheel
-
-      # 5. 빌드 결과물 업로드
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PyAlembic-macOS-Python3.13
-          # 생성된 파일 위치 지정
-          path: PyAlembic/dist/*.whl
