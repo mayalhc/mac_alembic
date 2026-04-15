@@ -1,4 +1,4 @@
-name: Build PyAlembic 3.13 (Force Boost Fix)
+name: Build PyAlembic 3.13 (PyImath Fix)
 
 on:
   push:
@@ -27,29 +27,28 @@ jobs:
           brew install cmake hdf5 boost boost-python3
           python3 -m pip install numpy
 
-      - name: Build Imath
+      - name: Build Imath & PyImath (Python 3.13)
         run: |
           cd imath
           mkdir build && cd build
+          # PyImath가 반드시 빌드되도록 설정을 강화합니다.
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
+            -DCMAKE_BUILD_TYPE=Release \
             -DPYIMATH_ENABLE=ON \
+            -DIMATH_INSTALL_PKGCONFIGDIR=$GITHUB_WORKSPACE/dist/lib/pkgconfig \
             -DPYTHON_EXECUTABLE=$(which python3) \
-            -DCMAKE_BUILD_TYPE=Release
+            -DIMATH_HALF_USE_LOOKUP_TABLE=ON
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Build Alembic (Manual Boost Link)
+      - name: Build Alembic (Python 3.13)
         run: |
           cd alembic
           mkdir build && cd build
           
-          # 3.13 경로 및 Boost 파일 이름 수동 감지
+          # Boost 라이브러리 강제 지정 (314라고 나와도 313 환경에서 링크 시도)
+          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
           PY_PREFIX=$(python3 -c "import sys; print(sys.prefix)")
-          BOOST_PY_DIR=$(brew --prefix boost-python3)/lib
-          
-          # 실제 존재하는 boost_python 라이브러리 파일명 찾기 (예: libboost_python313.dylib)
-          BOOST_PY_LIB=$(find $BOOST_PY_DIR -name "libboost_python3*.dylib" | head -n 1)
-          echo "Found Boost Python Lib: $BOOST_PY_LIB"
 
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
@@ -61,27 +60,23 @@ jobs:
             -DPYTHON_LIBRARY=${PY_PREFIX}/lib/libpython3.13.dylib \
             -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
             -DBOOST_ROOT=$(brew --prefix boost) \
-            -DBoost_NO_BOOST_CMAKE=ON \
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
-            -DBoost_PYTHON_LIBRARY_DEBUG=$BOOST_PY_LIB \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/dist;$(brew --prefix boost-python3)" \
             -DCMAKE_BUILD_TYPE=Release
           
-          # CMake가 여전히 거부할 경우를 대비해 직접 빌드
           make -j$(sysctl -n hw.ncpu) install
 
       - name: Organize Artifacts
         run: |
           mkdir -p output/alembic
           mkdir -p output/libs
-          # 결과물 수집
+          # 빌드된 .so 파일과 dylib 수집
           find $GITHUB_WORKSPACE/dist -name "*.so" -exec cp {} output/alembic/ \;
           find $GITHUB_WORKSPACE/dist -name "*.dylib" -exec cp {} output/libs/ \;
-          # Boost 라이브러리도 함께 복사 (런타임용)
-          cp $(brew --prefix boost-python3)/lib/libboost_python3*.dylib output/libs/ || true
+          cp $(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib") output/libs/ || true
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: PyAlembic-macOS-3.13-Final-Fix
+          name: PyAlembic-macOS-3.13-Fixed
           path: output/
