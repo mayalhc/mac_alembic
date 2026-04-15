@@ -61,29 +61,29 @@ jobs:
       # ======================
       # 2. ALEMBIC (수정됨: PyAlembic 활성화 및 경로 보정)
       # ======================
-      - name: Build Alembic
-        run: |
-          export ROOT=$GITHUB_WORKSPACE
-          export PREFIX=$ROOT/deploy
-          export PY_EXE=$(which python3)
+      # - name: Build Alembic
+      #   run: |
+      #     export ROOT=$GITHUB_WORKSPACE
+      #     export PREFIX=$ROOT/deploy
+      #     export PY_EXE=$(which python3)
 
-          cd $ROOT/alembic
-          mkdir -p build && cd build
+      #     cd $ROOT/alembic
+      #     mkdir -p build && cd build
 
-          # USE_PYALEMBIC=ON으로 변경하여 파이썬 바인딩 생성
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_PYALEMBIC=ON \
-            -DUSE_HDF5=ON \
-            -DALEMBIC_SHARED_LIBS=ON \
-            -DPYTHON_EXECUTABLE=$PY_EXE \
-            -DImath_DIR=$PREFIX/lib/cmake/Imath \
-            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3)" \
-            -DBoost_NO_BOOST_CMAKE=OFF \
-            -DBoost_USE_STATIC_LIBS=OFF
+      #     # USE_PYALEMBIC=ON으로 변경하여 파이썬 바인딩 생성
+      #     cmake .. \
+      #       -DCMAKE_INSTALL_PREFIX=$PREFIX \
+      #       -DCMAKE_BUILD_TYPE=Release \
+      #       -DUSE_PYALEMBIC=ON \
+      #       -DUSE_HDF5=ON \
+      #       -DALEMBIC_SHARED_LIBS=ON \
+      #       -DPYTHON_EXECUTABLE=$PY_EXE \
+      #       -DImath_DIR=$PREFIX/lib/cmake/Imath \
+      #       -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3)" \
+      #       -DBoost_NO_BOOST_CMAKE=OFF \
+      #       -DBoost_USE_STATIC_LIBS=OFF
 
-          make -j$(sysctl -n hw.ncpu) install
+      #     make -j$(sysctl -n hw.ncpu) install
 
       # ======================
       # 3. PACKAGE
