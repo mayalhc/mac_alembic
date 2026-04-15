@@ -34,19 +34,25 @@ jobs:
           cmake .. -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Build PyImath (Python 3.13 Target)
+      - name: Build PyImath (Python 3.13 Only)
         run: |
           cd pyimath
           mkdir build && cd build
-          # Python 3.13 경로를 명시적으로 지정하여 3.14 혼선을 방지합니다.
+          
+          # 파이썬 3.13 경로 정보 추출
           PY_EXE=$(which python3)
+          PY_INC=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
+          PY_LIB=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib
+          
+          # CMake가 3.14를 못 찾게 하고 3.13을 강제 지정
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
+            -DPython3_EXECUTABLE=$PY_EXE \
+            -DPython3_INCLUDE_DIR=$PY_INC \
+            -DPython3_LIBRARY=$PY_LIB \
             -DPYTHON_EXECUTABLE=$PY_EXE \
-            -DPYTHON_LIBRARY=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib \
-            -DPYTHON_INCLUDE_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))") \
             -DBOOST_ROOT=$(brew --prefix boost) \
             -DBoost_PYTHON_LIBRARY_RELEASE=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib")
           make -j$(sysctl -n hw.ncpu) install
@@ -56,15 +62,12 @@ jobs:
           mkdir -p output_313
           
           # 1. libPyImath_Python3_13 추출
-          echo "Finding libPyImath..."
           find $GITHUB_WORKSPACE/dist/lib -name "libPyImath_Python3_13*.dylib" -exec cp {} output_313/ \;
           
           # 2. libboost_python313 추출
-          echo "Finding libboost_python..."
           find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" -type f -exec cp {} output_313/ \;
           
           # 3. libpython3.13.dylib 추출
-          echo "Finding libpython3.13..."
           PY_LIB_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
           cp $PY_LIB_DIR/libpython3.13.dylib output_313/
           
