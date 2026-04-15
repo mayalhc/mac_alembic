@@ -28,16 +28,19 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build setuptools wheel
 
-      # 4. PyAlembic 빌드 수행
-      # (참고하신 저장소의 실제 빌드 명령어를 적어주세요)
-      - name: Build Wheel
+      # 4. 소스 코드 가져오기 및 환경 설정 (수정된 부분)
+      - name: Clone PyAlembic and Build
         run: |
-          python -m build
-          # 또는 특정 스크립트 실행: python setup.py bdist_wheel
+          # 1. 빌드에 필요한 추가 라이브러리 설치 (macOS용)
+          brew install alembic boost cmake
 
-      # 5. 빌드된 결과물(Wheel 파일 등) 저장
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-python3.13-build
-          path: dist/ # 빌드 파일이 생성되는 경로
+          # 2. PyAlembic 소스 가져오기 (본인 저장소에 소스가 없다면 직접 clone)
+          # 만약 이미 소스를 포함하고 있다면 이 줄은 건너뛰세요.
+          git clone https://github.com
+          cd PyAlembic
+
+          # 3. 환경 변수 설정 (Python 3.13 경로 지정)
+          export PYTHON_EXECUTABLE=$(which python3)
+          
+          # 4. 빌드 실행
+          python3 setup.py bdist_wheel
