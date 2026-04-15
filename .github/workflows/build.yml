@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install boost imath hdf5 cmake
+          brew install boost boost-python3 imath hdf5 cmake
 
           python -m pip install --upgrade pip
           python -m pip install numpy
@@ -31,9 +31,14 @@ jobs:
           mkdir build
           cd build
 
+          BREW_PREFIX=$(brew --prefix)
+
           cmake .. \
             -DUSE_PYALEMBIC=ON \
             -DPYTHON_EXECUTABLE=$(which python) \
+            -DBOOST_ROOT=$BREW_PREFIX \
+            -DBoost_NO_SYSTEM_PATHS=OFF \
+            -DBoost_PYTHON_LIBRARY=$BREW_PREFIX/lib \
             -DCMAKE_BUILD_TYPE=Release
 
           make -j4
