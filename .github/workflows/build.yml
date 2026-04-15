@@ -1,66 +1,47 @@
-name: Build PyAlembic for Python 3.13 (macOS)
+name: Build PyAlembic (macOS)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build-macos:
-    runs-on: macos-13  # 🔥 안정성 (macos-latest 대신 고정)
+  build:
+    runs-on: macos-13
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.13
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.11'   # 🔥 3.13 말고 안정 버전으로 먼저 확인
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           brew update
-
-          # 🔥 핵심: imath까지 같이 설치
           brew install alembic boost imath cmake
 
-          # Python build tools
           python -m pip install --upgrade pip
           python -m pip install setuptools wheel numpy
 
-      - name: Clone and Build
+      - name: Clone repo
         run: |
-          set -e  # 🔥 중간에 에러 나면 바로 죽여서 디버깅 쉽게
+          git clone https://github.com/mayalhc/mac_alembic.git
+          ls -al
 
-          git clone https://github.com/mayalhc/mac_alembic.git source_dir
-          cd source_dir/PyAlembic
+      - name: Build
+        run: |
+          cd mac_alembic/PyAlembic
 
-          # 🔥 brew 경로 안정화
           BREW_PREFIX=$(brew --prefix)
 
-          export CPLUS_INCLUDE_PATH=$BREW_PREFIX/include
-          export LIBRARY_PATH=$BREW_PREFIX/lib
-          export DYLD_LIBRARY_PATH=$BREW_PREFIX/lib
-
-          # 🔥 Alembic / Imath 명시 (이거 안 잡으면 imath 에러 터짐)
-          export ALEMBIC_INCLUDE_PATH=$BREW_PREFIX/include
-          export ALEMBIC_LIB_PATH=$BREW_PREFIX/lib
-
-          # 🔥 강제 경로 지정 (빌드 실패 방지)
           export CFLAGS="-I$BREW_PREFIX/include"
           export LDFLAGS="-L$BREW_PREFIX/lib"
+          export DYLD_LIBRARY_PATH="$BREW_PREFIX/lib"
 
-          # 빌드
-          python3 setup.py build_ext --inplace
-          python3 setup.py bdist_wheel
+          python setup.py build_ext --inplace
+          python setup.py bdist_wheel
 
-      - name: Verify build
+      - name: Check output
         run: |
-          ls -al source_dir/PyAlembic/dist
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PyAlembic-Python3.13-macOS
-          path: source_dir/PyAlembic/dist/*.whl
+          ls -al mac_alembic/PyAlembic/dist
