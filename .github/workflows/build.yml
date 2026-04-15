@@ -35,9 +35,9 @@ jobs:
 
           cmake .. \
             -DUSE_PYALEMBIC=ON \
+            -DUSE_PYILMBASE=OFF \  # 🔥 핵심 (PyImath 비활성화)
             -DPYTHON_EXECUTABLE=$(which python) \
             -DBOOST_ROOT=$BREW_PREFIX \
-            -DBoost_NO_SYSTEM_PATHS=OFF \
             -DBoost_PYTHON_LIBRARY=$BREW_PREFIX/lib \
             -DCMAKE_BUILD_TYPE=Release
 
