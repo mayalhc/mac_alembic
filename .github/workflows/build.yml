@@ -1,4 +1,4 @@
-name: Build Alembic 3.13 Stable (Fixed)
+name: Build Alembic 3.13 Stable (Fixed for Python 3.13)
 
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
           python3 -m pip install numpy
 
       # ======================
-      # 1. IMATH
+      # 1. IMATH (수정됨: Python 옵션 추가)
       # ======================
       - name: Build Imath
         run: |
@@ -47,15 +47,19 @@ jobs:
           cd $ROOT/imath
           mkdir -p build && cd build
 
+          # -DPYTHON=ON 옵션이 있어야 libPyImath dylib가 생성됩니다.
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_BUILD_TYPE=Release
+            -DPYTHON=ON \
+            -DPython3_EXECUTABLE=$(which python3) \
+            -DIMATH_INSTALL_PKG_CONFIG=ON
 
           make -j$(sysctl -n hw.ncpu) install
 
       # ======================
-      # 2. ALEMBIC (FIXED)
+      # 2. ALEMBIC (수정됨: PyAlembic 활성화 및 경로 보정)
       # ======================
       - name: Build Alembic
         run: |
@@ -66,10 +70,11 @@ jobs:
           cd $ROOT/alembic
           mkdir -p build && cd build
 
+          # USE_PYALEMBIC=ON으로 변경하여 파이썬 바인딩 생성
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_PYALEMBIC=OFF \
+            -DUSE_PYALEMBIC=ON \
             -DUSE_HDF5=ON \
             -DALEMBIC_SHARED_LIBS=ON \
             -DPYTHON_EXECUTABLE=$PY_EXE \
@@ -88,8 +93,9 @@ jobs:
           mkdir -p publish/PyAlembic
           mkdir -p publish/libs
 
+          # .so 파일(Python 모듈)과 .dylib 파일(라이브러리) 수집
           find $GITHUB_WORKSPACE/deploy -name "*.so" -exec cp {} publish/PyAlembic/ \; || true
-          find $GITHUB_WORKSPACE/deploy -name "*.dylib" -exec cp {} publish/libs/ \; || true
+          find $GITHUB_WORKSPACE/deploy -name "*.dylib" -exec cp -R {} publish/libs/ \; || true
 
       # ======================
       # 4. UPLOAD
