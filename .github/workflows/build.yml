@@ -15,7 +15,7 @@ jobs:
           # Imath와 PyImath를 각각 가져옵니다.
           git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
           git clone --depth 1 https://github.com/AcademySoftwareFoundation/openexr.git pyimath
-          git clone --depth 1 https://github.com/AcademySoftwareFoundation/alembic.git alembic
+          git clone --depth 1 https://github.com/sqlalchemy/alembic.git alembic
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
