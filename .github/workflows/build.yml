@@ -1,4 +1,4 @@
-name: Extract Only 3 Core Libs (3.13)
+name: Extract Only 3 Core Libs (3.13) - Final Force
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: macos-latest
     
     steps:
-      - name: Checkout Source (For Imath/PyImath)
+      - name: Checkout Source
         run: |
           # Imath와 PyImath를 각각 가져옵니다.
           git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
@@ -21,47 +21,54 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Install System Dependencies
+      - name: Install Dependencies
         run: |
           brew update
           brew install cmake boost boost-python3
 
-      - name: Build libPyImath (1st File)
+      - name: Build Imath & PyImath (Integrated)
         run: |
-          # Imath 엔진 빌드
-          cd imath && mkdir build && cd build
+          # 1. Imath 빌드 및 설치
+          mkdir -p imath/build && cd imath/build
           cmake .. -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
           
-          # PyImath 바인딩 빌드 (libPyImath_Python3_13 생성)
-          cd ../../pyimath && mkdir build && cd build
+          # 2. PyImath 빌드 (여기서 libPyImath_Python3_13이 생성되어야 함)
+          cd ../../pyimath
+          mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
             -DPYTHON_EXECUTABLE=$(which python3) \
-            -DBOOST_ROOT=$(brew --prefix boost)
+            -DBOOST_ROOT=$(brew --prefix boost) \
+            -DBoost_NO_BOOST_CMAKE=ON \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" | head -n 1)
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Collect 3 Core Files (The Target)
+      - name: Collect 3 Core Files
         run: |
           mkdir -p final_libs
           
-          # 1. libPyImath_Python3_13-3_1.dylib (직접 빌드한 것)
-          find $GITHUB_WORKSPACE/dist/lib -name "libPyImath_Python3_13*.dylib" -exec cp {} final_libs/ \;
+          # 1. libPyImath 추출 (이름/경로 정밀 타격)
+          echo "Looking for libPyImath..."
+          cp $GITHUB_WORKSPACE/dist/lib/libPyImath_Python3_13*.dylib final_libs/ || echo "libPyImath NOT FOUND"
           
-          # 2. libboost_python313.dylib (시스템에서 추출)
-          find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" -type f -exec cp {} final_libs/ \;
+          # 2. libboost_python313 추출
+          echo "Looking for libboost_python313..."
+          BOOST_PY_PATH=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" -type f | head -n 1)
+          cp $BOOST_PY_PATH final_libs/ || echo "libboost_python313 NOT FOUND"
           
-          # 3. libpython3.13.dylib (환경에서 복사)
+          # 3. libpython3.13.dylib 추출
+          echo "Looking for libpython3.13..."
           PY_LIB_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-          cp $PY_LIB_DIR/libpython3.13.dylib final_libs/
+          cp $PY_LIB_DIR/libpython3.13.dylib final_libs/ || echo "libpython3.13 NOT FOUND"
           
-          echo "--- CHECKING FINAL FILES ---"
+          echo "--- FINAL CHECK ---"
           ls -l final_libs/
 
-      - name: Upload Core 3 Libs
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Core-Libs-3.13-Set
+          name: Core-Libs-3.13-Final
           path: final_libs/
