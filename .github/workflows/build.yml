@@ -36,7 +36,7 @@ jobs:
 
           # 2. PyAlembic 소스 가져오기 (본인 저장소에 소스가 없다면 직접 clone)
           # 만약 이미 소스를 포함하고 있다면 이 줄은 건너뛰세요.
-          git clone https://github.com
+          git clone https://github.com/mayalhc/mac_alembic
           cd PyAlembic
 
           # 3. 환경 변수 설정 (Python 3.13 경로 지정)
