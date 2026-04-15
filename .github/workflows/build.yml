@@ -24,23 +24,30 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install setuptools wheel
 
-      # 충돌을 피하기 위해 'build_dir'이라는 새 폴더에 소스를 받습니다.
-      - name: Clone and Build
+      # 1. 빌드용 소스 코드 직접 가져오기
+      - name: Clone PyAlembic Source
         run: |
-          # 1. 소스 가져오기
+          # 기존 폴더가 있다면 삭제하고 새로 받음
+          rm -rf build_dir
           git clone https://github.com/mayalhc/mac_alembic build_dir
-          cd build_dir
-          
-          # 2. 라이브러리 경로 설정
+
+      # 2. 빌드 실행 (working-directory 설정을 사용하여 경로 강제 지정)
+      - name: Build Wheel
+        working-directory: ./build_dir
+        run: |
+          # 라이브러리 경로 설정
           export CPLUS_INCLUDE_PATH=$(brew --prefix)/include
           export LIBRARY_PATH=$(brew --prefix)/lib
           
-          # 3. 빌드 실행
-          python3 setup.py bdist_wheel
+          # 현재 폴더에 무엇이 있는지 확인 (로그에 남음)
+          ls -F
+          
+          # 빌드 명령어 (경로 오류를 방지하기 위해 파일 이름을 명시)
+          python3 ./setup.py bdist_wheel
 
+      # 3. 결과물 업로드
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PyAlembic-Python3.13-macOS
-          # 빌드된 파일 위치 지정
           path: build_dir/dist/*.whl
