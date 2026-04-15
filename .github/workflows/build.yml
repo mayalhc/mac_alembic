@@ -10,63 +10,69 @@ jobs:
     runs-on: macos-latest
     
     steps:
-      - name: Checkout Alembic Source
-        uses: actions/checkout@v4
-        with:
-          repository: alembic/alembic
-          path: alembic
+      - name: Checkout Source
+        run: |
+          git clone https://github.com alembic
+          git clone https://github.com imath
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      - name: Install Dependencies (Homebrew)
+      - name: Install Dependencies
         run: |
           brew update
-          # Imath, HDF5, Boost 설치
-          brew install cmake hdf5 imath boost boost-python3
-          
-          # PyImath 이슈 해결을 위해 PyIlmBase(PyImath) 관련 경로 확인 및 pip 설치
-          python3 -m pip install --upgrade pip setuptools wheel
+          brew install cmake hdf5 boost boost-python3
           python3 -m pip install numpy
 
-      - name: Configure and Build
+      - name: Build and Install Imath (with PyImath)
         run: |
+          cd imath
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/deps \
+            -DIMATH_INSTALL_PKGCONFIGDIR=$GITHUB_WORKSPACE/deps/lib/pkgconfig \
+            -DPYTHON_EXECUTABLE=$(which python3) \
+            -DPYIMATH_ENABLE=ON \
+            -DIMATH_HALF_USE_LOOKUP_TABLE=ON
+          make -j$(sysctl -n hw.ncpu)
+          make install
+
+      - name: Build Alembic (PyAlembic)
+        run: |
+          cd alembic
           mkdir build && cd build
           
-          # 주요 경로 변수 설정
-          export PREFIX=$(brew --prefix)
-          export PYTHON_EXE=$(which python3)
-          
-          cmake ../alembic \
+          # Imath 경로를 위에서 빌드한 deps 폴더로 강제 지정
+          cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
-            -DCMAKE_BUILD_TYPE=Release \
             -DUSE_PYALEMBIC=ON \
             -DUSE_HDF5=ON \
             -DALEMBIC_SHARED_LIBS=ON \
-            -DPYTHON_EXECUTABLE=$PYTHON_EXE \
-            -DIMATH_INSTALL_PREFIX=$PREFIX \
-            -DIMATH_INC_DIR=$PREFIX/include/Imath \
-            -DIMATH_LIB_DIR=$PREFIX/lib \
-            -DBOOST_ROOT=$PREFIX \
-            -DPYIMATH_LIBRARIES=$PREFIX/lib/libPyImath_Python3_13.dylib \
-            -DALE_PYIMATH_PYTHON3=ON \
-            -DCMAKE_MACOSX_RPATH=ON
+            -DPYTHON_EXECUTABLE=$(which python3) \
+            -DImath_DIR=$GITHUB_WORKSPACE/deps/lib/cmake/Imath \
+            -DIMATH_INC_DIR=$GITHUB_WORKSPACE/deps/include/Imath \
+            -DIMATH_LIB_DIR=$GITHUB_WORKSPACE/deps/lib \
+            -DBOOST_ROOT=$(brew --prefix boost) \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deps;$(brew --prefix boost-python3)"
           
           make -j$(sysctl -n hw.ncpu)
           make install
 
-      - name: Organize Python Artifacts
+      - name: Organize Artifacts
         run: |
           mkdir -p final_output/alembic
-          # 빌드된 .so 파일들을 패키지 형태로 모음
-          find build/python -name "*.so" -exec cp {} final_output/alembic/ \; || true
-          # alembic 내의 python 소스 파일들도 복사
+          # 빌드된 .so 라이브러리 수집
+          find alembic/build/python -name "*.so" -exec cp {} final_output/alembic/ \; || true
+          # 파이썬 래퍼 소스 복사
           cp -r alembic/python/PyAlembic/* final_output/alembic/ || true
+          # 의존성 라이브러리(dylib)도 함께 포함 (런타임 에러 방지)
+          mkdir -p final_output/libs
+          find $GITHUB_WORKSPACE/deps/lib -name "*.dylib" -exec cp {} final_output/libs/ \; || true
 
-      - name: Upload Build Artifacts
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: PyAlembic-macOS-Python3.13
+          name: PyAlembic-macOS-Py3.13-Final
           path: final_output/
