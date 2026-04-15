@@ -25,6 +25,15 @@ jobs:
         run: |
           git clone https://github.com/alembic/alembic.git
 
+      - name: Patch Imath (🔥 핵심)
+        run: |
+          BREW_PREFIX=$(brew --prefix)
+
+          mkdir -p $BREW_PREFIX/lib/cmake/Imath
+
+          # 가짜 PyImathTargets.cmake 생성
+          echo "add_library(PyImath INTERFACE)" > $BREW_PREFIX/lib/cmake/Imath/PyImathTargets.cmake
+
       - name: Build Alembic
         run: |
           cd alembic
@@ -35,7 +44,6 @@ jobs:
 
           cmake .. \
             -DUSE_PYALEMBIC=ON \
-            -DUSE_PYILMBASE=OFF \
             -DPYTHON_EXECUTABLE=$(which python) \
             -DBOOST_ROOT=$BREW_PREFIX \
             -DBoost_PYTHON_LIBRARY=$BREW_PREFIX/lib \
