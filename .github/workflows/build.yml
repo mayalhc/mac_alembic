@@ -1,4 +1,4 @@
-name: Build PyAlembic 3.13 (Boost Fix)
+name: Build PyAlembic 3.13 (Force Boost Fix)
 
 on:
   push:
@@ -38,13 +38,19 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Build Alembic (Force Boost Python 3.13)
+      - name: Build Alembic (Manual Boost Link)
         run: |
           cd alembic
           mkdir build && cd build
           
+          # 3.13 경로 및 Boost 파일 이름 수동 감지
           PY_PREFIX=$(python3 -c "import sys; print(sys.prefix)")
+          BOOST_PY_DIR=$(brew --prefix boost-python3)/lib
           
+          # 실제 존재하는 boost_python 라이브러리 파일명 찾기 (예: libboost_python313.dylib)
+          BOOST_PY_LIB=$(find $BOOST_PY_DIR -name "libboost_python3*.dylib" | head -n 1)
+          echo "Found Boost Python Lib: $BOOST_PY_LIB"
+
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DUSE_PYALEMBIC=ON \
@@ -56,26 +62,26 @@ jobs:
             -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
             -DBOOST_ROOT=$(brew --prefix boost) \
             -DBoost_NO_BOOST_CMAKE=ON \
-            -DBoost_ARCHITECTURE=-x64 \
-            -DBOOST_LIBRARYDIR=$(brew --prefix boost-python3)/lib \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib") \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+            -DBoost_PYTHON_LIBRARY_DEBUG=$BOOST_PY_LIB \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/dist;$(brew --prefix boost-python3)" \
             -DCMAKE_BUILD_TYPE=Release
           
+          # CMake가 여전히 거부할 경우를 대비해 직접 빌드
           make -j$(sysctl -n hw.ncpu) install
 
       - name: Organize Artifacts
         run: |
           mkdir -p output/alembic
           mkdir -p output/libs
-          # 빌드된 바이너리 및 dylib 수집
+          # 결과물 수집
           find $GITHUB_WORKSPACE/dist -name "*.so" -exec cp {} output/alembic/ \;
-          cp $GITHUB_WORKSPACE/dist/lib/*.dylib output/libs/
-          # 필요한 경우 boost-python dylib도 포함
-          cp $(brew --prefix boost-python3)/lib/libboost_python313*.dylib output/libs/ || true
+          find $GITHUB_WORKSPACE/dist -name "*.dylib" -exec cp {} output/libs/ \;
+          # Boost 라이브러리도 함께 복사 (런타임용)
+          cp $(brew --prefix boost-python3)/lib/libboost_python3*.dylib output/libs/ || true
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: PyAlembic-macOS-3.13-Final
+          name: PyAlembic-macOS-3.13-Final-Fix
           path: output/
