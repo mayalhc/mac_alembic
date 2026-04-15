@@ -1,4 +1,4 @@
-name: Extract Only 3 Core Libs (3.13) - Force Fix
+name: Extract 3 Core Libs (Multi-Version Boost Search)
 
 on:
   push:
@@ -24,59 +24,60 @@ jobs:
       - name: Install Dependencies
         run: |
           brew update
-          # 시스템 파이썬과의 혼선을 방지하기 위해 필요한 것만 설치
           brew install cmake boost boost-python3
 
-      - name: 1. Build Imath (Engine)
+      - name: 1. Build Imath
         run: |
           mkdir -p imath/build && cd imath/build
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON
+          cmake .. -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: 2. Build PyImath (Python 3.13 Binding)
+      - name: 2. Build PyImath
         run: |
-          cd pyimath
-          mkdir build && cd build
+          cd pyimath && mkdir build && cd build
+          # 우선 3.13용을 찾아보고 없으면 다른 버전을 찾습니다.
+          BOOST_PY_PATH=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" -type f | head -n 1)
           
-          # 파이썬 3.13 경로 명시적 추출
-          PY_EXE=$(which python3)
-          PY_INC=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
-          PY_LIB=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib
-          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" | head -n 1)
-
-          # OpenEXR 전체 빌드를 피하고 PyImath만 빌드하도록 옵션 조정
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
-            -DPYTHON_EXECUTABLE=$PY_EXE \
-            -DPYTHON_INCLUDE_DIR=$PY_INC \
-            -DPYTHON_LIBRARY=$PY_LIB \
-            -DBOOST_ROOT=$(brew --prefix boost) \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+            -DPYTHON_EXECUTABLE=$(which python3) \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_PATH \
             -DBoost_NO_BOOST_CMAKE=ON
-          
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: 3. Collect and Verify 3 Core Files
+      - name: 3. Collect 3 Core Files (Multi-Version Search)
         run: |
           mkdir -p final_libs
           
-          # 파일 1: libPyImath_Python3_13
-          echo "Copying libPyImath..."
-          find $GITHUB_WORKSPACE/dist/lib -name "libPyImath_Python3_13*.dylib" -exec cp {} final_libs/ \;
+          # 파일 1: libPyImath 추출
+          cp $GITHUB_WORKSPACE/dist/lib/libPyImath_Python3_13*.dylib final_libs/ || echo "libPyImath not found"
           
-          # 파일 2: libboost_python313
-          echo "Copying libboost_python313..."
-          cp $(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" -type f | head -n 1) final_libs/
-          
-          # 파일 3: libpython3.13
-          echo "Copying libpython3.13..."
+          # 파일 2: libboost_python (3.13 -> 3.12 -> 3.11 -> 3.10 순서로 탐색)
+          BOOST_LIB_DIR=$(brew --prefix boost-python3)/lib
+          found_boost=false
+          for ver in 313 312 311 310; do
+            FILE_PATH=$(find $BOOST_LIB_DIR -name "libboost_python$ver.dylib" -type f | head -n 1)
+            if [ -n "$FILE_PATH" ]; then
+              cp "$FILE_PATH" "final_libs/libboost_python313.dylib"
+              echo "SUCCESS: Found $FILE_PATH, copied as libboost_python313.dylib"
+              found_boost=true
+              break
+            fi
+          done
+
+          if [ "$found_boost" = false ]; then
+            echo "WARNING: Specific version not found. Copying any available boost_python3..."
+            ANY_BOOST=$(find $BOOST_LIB_DIR -name "libboost_python3*.dylib" -type f | head -n 1)
+            if [ -n "$ANY_BOOST" ]; then
+              cp "$ANY_BOOST" "final_libs/libboost_python313.dylib"
+            fi
+          fi
+
+          # 파일 3: libpython3.13 추출
           PY_LIB_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-          cp $PY_LIB_DIR/libpython3.13.dylib final_libs/
+          cp "$PY_LIB_DIR/libpython3.13.dylib" final_libs/
           
           echo "--- FINAL CHECK ---"
           ls -l final_libs/
@@ -84,5 +85,5 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Core-Libs-3.13-Final
+          name: Core-Libs-3.13-Set
           path: final_libs/
