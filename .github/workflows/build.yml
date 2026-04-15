@@ -1,4 +1,4 @@
-name: Extract Only 3 Core Libs (3.13) - Final Force
+name: Extract Only 3 Core Libs (3.13) - Force Fix
 
 on:
   push:
@@ -24,45 +24,59 @@ jobs:
       - name: Install Dependencies
         run: |
           brew update
+          # 시스템 파이썬과의 혼선을 방지하기 위해 필요한 것만 설치
           brew install cmake boost boost-python3
 
-      - name: Build Imath & PyImath (Integrated)
+      - name: 1. Build Imath (Engine)
         run: |
-          # 1. Imath 빌드 및 설치
           mkdir -p imath/build && cd imath/build
-          cmake .. -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist -DCMAKE_BUILD_TYPE=Release
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON
           make -j$(sysctl -n hw.ncpu) install
-          
-          # 2. PyImath 빌드 (여기서 libPyImath_Python3_13이 생성되어야 함)
-          cd ../../pyimath
+
+      - name: 2. Build PyImath (Python 3.13 Binding)
+        run: |
+          cd pyimath
           mkdir build && cd build
+          
+          # 파이썬 3.13 경로 명시적 추출
+          PY_EXE=$(which python3)
+          PY_INC=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
+          PY_LIB=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib
+          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" | head -n 1)
+
+          # OpenEXR 전체 빌드를 피하고 PyImath만 빌드하도록 옵션 조정
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
-            -DPYTHON_EXECUTABLE=$(which python3) \
+            -DPYTHON_EXECUTABLE=$PY_EXE \
+            -DPYTHON_INCLUDE_DIR=$PY_INC \
+            -DPYTHON_LIBRARY=$PY_LIB \
             -DBOOST_ROOT=$(brew --prefix boost) \
-            -DBoost_NO_BOOST_CMAKE=ON \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" | head -n 1)
+            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+            -DBoost_NO_BOOST_CMAKE=ON
+          
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Collect 3 Core Files
+      - name: 3. Collect and Verify 3 Core Files
         run: |
           mkdir -p final_libs
           
-          # 1. libPyImath 추출 (이름/경로 정밀 타격)
-          echo "Looking for libPyImath..."
-          cp $GITHUB_WORKSPACE/dist/lib/libPyImath_Python3_13*.dylib final_libs/ || echo "libPyImath NOT FOUND"
+          # 파일 1: libPyImath_Python3_13
+          echo "Copying libPyImath..."
+          find $GITHUB_WORKSPACE/dist/lib -name "libPyImath_Python3_13*.dylib" -exec cp {} final_libs/ \;
           
-          # 2. libboost_python313 추출
-          echo "Looking for libboost_python313..."
-          BOOST_PY_PATH=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" -type f | head -n 1)
-          cp $BOOST_PY_PATH final_libs/ || echo "libboost_python313 NOT FOUND"
+          # 파일 2: libboost_python313
+          echo "Copying libboost_python313..."
+          cp $(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" -type f | head -n 1) final_libs/
           
-          # 3. libpython3.13.dylib 추출
-          echo "Looking for libpython3.13..."
+          # 파일 3: libpython3.13
+          echo "Copying libpython3.13..."
           PY_LIB_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-          cp $PY_LIB_DIR/libpython3.13.dylib final_libs/ || echo "libpython3.13 NOT FOUND"
+          cp $PY_LIB_DIR/libpython3.13.dylib final_libs/
           
           echo "--- FINAL CHECK ---"
           ls -l final_libs/
