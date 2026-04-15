@@ -1,4 +1,4 @@
-name: Build PyAlembic 3.13 for Blender 5.1
+name: PyAlembic 3.13 Stable Build (Fixed)
 
 on:
   push:
@@ -8,117 +8,85 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout My Repo
+      - name: Checkout Alembic
         uses: actions/checkout@v4
         with:
-          path: main_repo
+          repository: alembic/alembic
+          path: alembic
 
-      - name: Checkout Dependencies
-        run: |
-          git clone --depth 1 https://github.com/alembic/alembic alembic
-          git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath imath
-          git clone --depth 1 https://github.com/AcademySoftwareFoundation/openexr openexr
+      - name: Checkout Imath
+        uses: actions/checkout@v4
+        with:
+          repository: AcademySoftwareFoundation/Imath
+          path: imath
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      - name: Install Build Tools
+      - name: Install deps
         run: |
           brew update
-          brew install cmake hdf5 boost boost-python3 pybind11
+          brew install cmake hdf5 boost boost-python3
           python3 -m pip install numpy
 
-      - name: Build Everything
+      # =========================
+      # 1. IMATH (PYTHON 절대 끔)
+      # =========================
+      - name: Build Imath (NO PyImath)
         run: |
-          export ROOT=$GITHUB_WORKSPACE
-          export PREFIX=$ROOT/deploy
-          mkdir -p $PREFIX
+          cd imath
+          mkdir -p build && cd build
+
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/deploy \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYIMATH_ENABLE=OFF
+
+          make -j$(sysctl -n hw.ncpu) install
+
+      # =========================
+      # 2. ALEMBIC
+      # =========================
+      - name: Build Alembic
+        run: |
+          cd alembic
+          mkdir -p build && cd build
 
           PY_EXE=$(which python3)
           BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
 
-          # 1. Imath
-          cd $ROOT/imath
-          mkdir -p build && cd build
-
           cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_BUILD_TYPE=Release
-
-          make -j$(sysctl -n hw.ncpu) install
-
-          # 2. OpenEXR (PyImath 포함)
-          cd $ROOT/openexr
-          mkdir -p build && cd build
-
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/deploy \
             -DCMAKE_BUILD_TYPE=Release \
-            -DImath_DIR=$PREFIX/lib/cmake/Imath \
-            -DOPENEXR_BUILD_PYTHON=ON \
-            -DOPENEXR_FORCE_INTERNAL_IMATH=OFF \
-            -DPYTHON_EXECUTABLE=$PY_EXE \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
-            -Dpybind11_DIR=$(brew --prefix pybind11)/share/cmake/pybind11
-
-          make -j$(sysctl -n hw.ncpu) install
-
-          # 3. Alembic
-          cd $ROOT/alembic
-          mkdir -p build && cd build
-
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DUSE_PYALEMBIC=ON \
             -DUSE_HDF5=ON \
             -DALEMBIC_SHARED_LIBS=ON \
             -DPYTHON_EXECUTABLE=$PY_EXE \
-            -DImath_DIR=$PREFIX/lib/cmake/Imath \
-            -DOpenEXR_DIR=$PREFIX/lib/cmake/OpenEXR \
-            -DPyImath_DIR=$PREFIX/lib/cmake/PyImath \
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
-            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
+            -DBOOST_ROOT=$(brew --prefix boost) \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deploy;$(brew --prefix boost-python3)"
 
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Save Results to Repo
+      # =========================
+      # 3. OUTPUT ONLY
+      # =========================
+      - name: Package
         run: |
-          TARGET_DIR="${{ github.workspace }}/main_repo/PyAlembic"
-          LIBS_DIR="$TARGET_DIR/libs"
+          mkdir -p publish/PyAlembic
 
-          rm -rf "$TARGET_DIR"
-          mkdir -p "$LIBS_DIR"
+          find $GITHUB_WORKSPACE/deploy -name "*.so" -exec cp {} publish/PyAlembic/ \;
 
-          # .so
-          find ${{ github.workspace }}/deploy -name "*.so" -exec cp {} "$TARGET_DIR/" \;
+          mkdir -p publish/libs
+          find $GITHUB_WORKSPACE/deploy -name "*.dylib" -exec cp {} publish/libs/ \;
 
-          # .dylib
-          find ${{ github.workspace }}/deploy -name "*.dylib" -exec cp {} "$LIBS_DIR/" \;
-
-          # core runtime
-          BOOST_PY=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
-          cp "$BOOST_PY" "$LIBS_DIR/libboost_python313.dylib"
-          cp $(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib "$LIBS_DIR/"
-
-          # python wrapper only (safe path fix)
-          cp -r $ROOT/alembic/python/PyAlembic/* "$TARGET_DIR/" || true
-
-      - name: Commit and Push Changes
-        run: |
-          cd ${{ github.workspace }}/main_repo
-
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add PyAlembic/
-
-          git commit -m "Clean Build: PyAlembic 3.13 (Stable)" || echo "No changes"
-
-          git push origin main || echo "Nothing to push"
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: PyAlembic-3.13-Fixed
+          path: publish/
