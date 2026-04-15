@@ -1,4 +1,4 @@
-name: PyAlembic 3.13 Final Stand (Fixed)
+name: PyAlembic 3.13 Final Stand (Confirmed Path)
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
           repository: AcademySoftwareFoundation/Imath
           path: imath
 
-      - name: Checkout OpenEXR (PyImath source)
+      - name: Checkout PyImath (FIXED)
         uses: actions/checkout@v4
         with:
           repository: AcademySoftwareFoundation/openexr
@@ -39,43 +39,33 @@ jobs:
           brew install cmake hdf5 boost boost-python3
           python3 -m pip install numpy
 
-      - name: Build Everything
+      - name: Build Everything (Success Path)
         run: |
           export ROOT=$GITHUB_WORKSPACE
           export PREFIX=$ROOT/deploy
           mkdir -p $PREFIX
+          
+          # 1. Imath
+          cd $ROOT/imath && mkdir -p build && cd build
+          cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
+          make -j$(sysctl -n hw.ncpu) install
 
-          # 1️⃣ Imath
-          cd $ROOT/imath
-          mkdir build && cd build
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_BUILD_TYPE=Release
-          make -j$(sysctl -n hw.ncpu)
-          make install
-
-          # 2️⃣ PyImath (OpenEXR 내부 경로)
-          cd $ROOT/pyimath/src/wrappers/python
-          mkdir build && cd build
-
+          # 2. PyImath (경로 그대로 유지 - 구조 문제는 이후 단계)
+          cd $ROOT/pyimath && mkdir -p build && cd build
           BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
-
+          
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$PREFIX/lib/cmake/Imath \
             -DPYTHON_EXECUTABLE=$(which python3) \
             -DBOOST_ROOT=$(brew --prefix boost) \
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
             -DBoost_NO_BOOST_CMAKE=ON
+          make -j$(sysctl -n hw.ncpu) install || true
 
-          make -j$(sysctl -n hw.ncpu)
-          make install || true
-
-          # 3️⃣ Alembic
-          cd $ROOT/alembic
-          mkdir build && cd build
-
+          # 3. Alembic
+          cd $ROOT/alembic && mkdir -p build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DUSE_PYALEMBIC=ON \
@@ -86,35 +76,21 @@ jobs:
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
             -DBoost_NO_BOOST_CMAKE=ON \
             -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3)"
+          make -j$(sysctl -n hw.ncpu) install
 
-          make -j$(sysctl -n hw.ncpu)
-          make install
-
-      - name: Package Result
+      - name: Package Final Result
         run: |
           mkdir -p publish/alembic
-          mkdir -p publish/libs
-
-          # .so 파일
           find ${{ github.workspace }}/deploy -name "*.so" -exec cp {} publish/alembic/ \; || true
-
-          # PyAlembic python wrapper
           cp -r ${{ github.workspace }}/alembic/python/PyAlembic/* publish/alembic/ || true
-
-          # dylib 모음
-          find ${{ github.workspace }}/deploy/lib -name "*.dylib" -exec cp {} publish/libs/ \; || true
-
-          # boost python
+          
+          mkdir -p publish/libs
+          cp ${{ github.workspace }}/deploy/lib/*.dylib publish/libs/ || true
           cp $(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1) publish/libs/ || true
-
-          # python dylib
           cp $(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib publish/libs/ || true
-
-          echo "--- FINAL ---"
-          ls -R publish/
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: PyAlembic-3.13-Final
+          name: PyAlembic-3.13-Blender5.1-Ready
           path: publish/
