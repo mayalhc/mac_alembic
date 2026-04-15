@@ -1,4 +1,4 @@
-name: Extract 3 Core Libs (Multi-Version Boost Search)
+name: Build PyAlembic 3.13 (Ultimate Static)
 
 on:
   push:
@@ -10,80 +10,80 @@ jobs:
     runs-on: macos-latest
     
     steps:
-      - name: Checkout Source
+      - name: Checkout All Sources
         run: |
           # Imath와 PyImath를 각각 가져옵니다.
           git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
           git clone --depth 1 https://github.com/AcademySoftwareFoundation/openexr.git pyimath
+          git clone --depth 1 https://github.com/AcademySoftwareFoundation/alembic.git alembic
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      - name: Install Dependencies
+      - name: Install System Core
         run: |
           brew update
-          brew install cmake boost boost-python3
+          brew install cmake hdf5 boost boost-python3
+          python3 -m pip install numpy
 
-      - name: 1. Build Imath
+      - name: 1. Build Imath (Static)
         run: |
-          mkdir -p imath/build && cd imath/build
-          cmake .. -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist -DCMAKE_BUILD_TYPE=Release
+          cd imath && mkdir build && cd build
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: 2. Build PyImath
+      - name: 2. Build PyImath (Static Binding)
         run: |
           cd pyimath && mkdir build && cd build
-          # 우선 3.13용을 찾아보고 없으면 다른 버전을 찾습니다.
-          BOOST_PY_PATH=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" -type f | head -n 1)
+          # 어떤 버전의 Boost-Python이든 일단 하나를 찾습니다.
+          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
           
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
-            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
             -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
             -DPYTHON_EXECUTABLE=$(which python3) \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_PATH \
+            -DBOOST_ROOT=$(brew --prefix boost) \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
             -DBoost_NO_BOOST_CMAKE=ON
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: 3. Collect 3 Core Files (Multi-Version Search)
+      - name: 3. Build Alembic & PyAlembic (Final One-Body)
         run: |
-          mkdir -p final_libs
+          cd alembic && mkdir build && cd build
+          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
           
-          # 파일 1: libPyImath 추출
-          cp $GITHUB_WORKSPACE/dist/lib/libPyImath_Python3_13*.dylib final_libs/ || echo "libPyImath not found"
-          
-          # 파일 2: libboost_python (3.13 -> 3.12 -> 3.11 -> 3.10 순서로 탐색)
-          BOOST_LIB_DIR=$(brew --prefix boost-python3)/lib
-          found_boost=false
-          for ver in 313 312 311 310; do
-            FILE_PATH=$(find $BOOST_LIB_DIR -name "libboost_python$ver.dylib" -type f | head -n 1)
-            if [ -n "$FILE_PATH" ]; then
-              cp "$FILE_PATH" "final_libs/libboost_python313.dylib"
-              echo "SUCCESS: Found $FILE_PATH, copied as libboost_python313.dylib"
-              found_boost=true
-              break
-            fi
-          done
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
+            -DUSE_PYALEMBIC=ON \
+            -DUSE_HDF5=ON \
+            -DALEMBIC_SHARED_LIBS=OFF \
+            -DPYTHON_EXECUTABLE=$(which python3) \
+            -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+            -DBoost_NO_BOOST_CMAKE=ON \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/dist;$(brew --prefix boost-python3)"
+          make -j$(sysctl -n hw.ncpu) install
 
-          if [ "$found_boost" = false ]; then
-            echo "WARNING: Specific version not found. Copying any available boost_python3..."
-            ANY_BOOST=$(find $BOOST_LIB_DIR -name "libboost_python3*.dylib" -type f | head -n 1)
-            if [ -n "$ANY_BOOST" ]; then
-              cp "$ANY_BOOST" "final_libs/libboost_python313.dylib"
-            fi
-          fi
-
-          # 파일 3: libpython3.13 추출
-          PY_LIB_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-          cp "$PY_LIB_DIR/libpython3.13.dylib" final_libs/
+      - name: 4. Collect Only Working Files
+        run: |
+          mkdir -p final_out/alembic
+          # 핵심인 alembic.so와 관련 파이썬 파일만 챙깁니다.
+          find $GITHUB_WORKSPACE/dist -name "*.so" -exec cp {} final_out/alembic/ \;
+          cp -r alembic/python/PyAlembic/* final_out/alembic/ || true
           
-          echo "--- FINAL CHECK ---"
-          ls -l final_libs/
+          # 런타임에 혹시나 찾을지 모르는 dylib들 (최소한만)
+          mkdir -p final_out/libs
+          find $GITHUB_WORKSPACE/dist/lib -name "*.dylib" -exec cp {} final_out/libs/ \; || true
+          cp $(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1) final_libs/libboost_python313.dylib || true
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Core-Libs-3.13-Set
-          path: final_libs/
+          name: PyAlembic-3.13-Final-Package
+          path: final_out/
