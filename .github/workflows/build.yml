@@ -25,7 +25,7 @@ jobs:
         run: |
           git clone https://github.com/alembic/alembic.git
 
-      - name: Build Alembic with Python bindings
+      - name: Build Alembic
         run: |
           cd alembic
           mkdir build
@@ -35,7 +35,7 @@ jobs:
 
           cmake .. \
             -DUSE_PYALEMBIC=ON \
-            -DUSE_PYILMBASE=OFF \  # 🔥 핵심 (PyImath 비활성화)
+            -DUSE_PYILMBASE=OFF \
             -DPYTHON_EXECUTABLE=$(which python) \
             -DBOOST_ROOT=$BREW_PREFIX \
             -DBoost_PYTHON_LIBRARY=$BREW_PREFIX/lib \
