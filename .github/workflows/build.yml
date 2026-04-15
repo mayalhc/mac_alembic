@@ -1,4 +1,4 @@
-name: Build PyAlembic 3.13 (Imath & Boost Force Fix)
+name: Extract Py3.13 Core Libraries
 
 on:
   push:
@@ -10,10 +10,9 @@ jobs:
     runs-on: macos-latest
     
     steps:
-      - name: Checkout Source
+      - name: Checkout Sources
         run: |
-          git clone https://github.com/alembic/alembic.git
-          git clone https://github.com/AcademySoftwareFoundation/Imath.git imath
+          git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
           git clone https://github.com/mayalhc/mac_alembic.git myrepo
 
       - name: Set up Python 3.13
@@ -24,65 +23,43 @@ jobs:
       - name: Install Dependencies
         run: |
           brew update
-          brew install cmake hdf5 boost boost-python3
+          brew install cmake boost boost-python3
           python3 -m pip install numpy
 
-      - name: Build Imath & PyImath (Force Python 3.13)
+      - name: Build Imath for Python 3.13
         run: |
           cd imath
           mkdir build && cd build
-          # Imath 3.x에서 PyImath가 확실히 생성되도록 변수 명시
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DCMAKE_BUILD_TYPE=Release \
             -DPYIMATH_ENABLE=ON \
-            -DPYTHON_EXECUTABLE=$(which python3) \
-            -DIMATH_INSTALL_PKGCONFIGDIR=$GITHUB_WORKSPACE/dist/lib/pkgconfig
-          make -j$(sysctl -n hw.ncpu) install
-          
-          # [핵심] PyImathTargets.cmake가 안 생겼을 경우를 대비해 확인 로직 추가
-          ls -R $GITHUB_WORKSPACE/dist/lib/cmake/Imath/
-
-      - name: Build Alembic (Bypass Boost Config Error)
-        run: |
-          cd alembic
-          mkdir build && cd build
-          
-          # 파이썬 및 부스트 경로 수동 정의
-          PY_PREFIX=$(python3 -c "import sys; print(sys.prefix)")
-          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
-          
-          # BoostConfig.cmake 에러를 피하기 위해 FindBoost를 우회하는 변수들 주입
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
-            -DUSE_PYALEMBIC=ON \
-            -DUSE_HDF5=ON \
-            -DALEMBIC_SHARED_LIBS=ON \
-            -DPYTHON_EXECUTABLE=$(which python3) \
-            -DPYTHON_INCLUDE_DIR=${PY_PREFIX}/include/python3.13 \
-            -DPYTHON_LIBRARY=${PY_PREFIX}/lib/libpython3.13.dylib \
-            -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
-            -DBOOST_ROOT=$(brew --prefix boost) \
-            -DBoost_NO_BOOST_CMAKE=ON \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
-            -DBoost_PYTHON_LIBRARY_DEBUG=$BOOST_PY_LIB \
-            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/dist;$(brew --prefix boost-python3)" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DALE_PYIMATH_PYTHON3=ON
-          
+            -DPYTHON_EXECUTABLE=$(which python3)
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Organize Artifacts
+      - name: Collect Target Libraries (3.13)
         run: |
-          mkdir -p output/alembic
-          mkdir -p output/libs
-          # 결과물 수집
-          find $GITHUB_WORKSPACE/dist -name "*.so" -exec cp {} output/alembic/ \;
-          find $GITHUB_WORKSPACE/dist -name "*.dylib" -exec cp {} output/libs/ \;
-          cp $BOOST_PY_LIB output/libs/ || true
+          mkdir -p output_313
+          
+          # 1. PyImath
+          find $GITHUB_WORKSPACE/dist/lib -name "libPyImath_Python3_13*.dylib" -exec cp {} output_313/ \;
 
-      - name: Upload
+          # 2. boost python
+          cp $(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib") output_313/ || true
+          
+          # 3. python dylib
+          PY_LIB_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          cp $PY_LIB_DIR/libpython3.13.dylib output_313/
+
+          # 🔥 추가: 네 PyAlembic 코드도 같이 포함
+          mkdir -p output_313/PyAlembic
+          cp -r myrepo/PyAlembic/* output_313/PyAlembic/ || true
+
+      - name: Check Extracted Files
+        run: ls -l output_313/
+
+      - name: Upload Core Libraries
         uses: actions/upload-artifact@v4
         with:
-          name: PyAlembic-macOS-3.13-Ultimate-Fix
-          path: output/
+          name: PyAlembic-Required-Libs-3.13
+          path: output_313/
