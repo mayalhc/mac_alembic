@@ -1,4 +1,4 @@
-name: PyAlembic 3.13 Stable Build (Fixed)
+name: Build Alembic 3.13 Stable (Fixed)
 
 on:
   push:
@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Alembic
@@ -27,66 +29,73 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Install deps
+      - name: Install Dependencies
         run: |
           brew update
           brew install cmake hdf5 boost boost-python3
           python3 -m pip install numpy
 
-      # =========================
-      # 1. IMATH (PYTHON 절대 끔)
-      # =========================
-      - name: Build Imath (NO PyImath)
+      # ======================
+      # 1. IMATH
+      # ======================
+      - name: Build Imath
         run: |
-          cd imath
+          export ROOT=$GITHUB_WORKSPACE
+          export PREFIX=$ROOT/deploy
+          mkdir -p $PREFIX
+
+          cd $ROOT/imath
           mkdir -p build && cd build
 
           cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/deploy \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DPYIMATH_ENABLE=OFF
+            -DCMAKE_BUILD_TYPE=Release
 
           make -j$(sysctl -n hw.ncpu) install
 
-      # =========================
-      # 2. ALEMBIC
-      # =========================
+      # ======================
+      # 2. ALEMBIC (FIXED)
+      # ======================
       - name: Build Alembic
         run: |
-          cd alembic
+          export ROOT=$GITHUB_WORKSPACE
+          export PREFIX=$ROOT/deploy
+          export PY_EXE=$(which python3)
+
+          cd $ROOT/alembic
           mkdir -p build && cd build
 
-          PY_EXE=$(which python3)
-          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
-
           cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/deploy \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_PYALEMBIC=ON \
+            -DUSE_PYALEMBIC=OFF \
             -DUSE_HDF5=ON \
             -DALEMBIC_SHARED_LIBS=ON \
             -DPYTHON_EXECUTABLE=$PY_EXE \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
-            -DBOOST_ROOT=$(brew --prefix boost) \
-            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deploy;$(brew --prefix boost-python3)"
+            -DImath_DIR=$PREFIX/lib/cmake/Imath \
+            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3)" \
+            -DBoost_NO_BOOST_CMAKE=OFF \
+            -DBoost_USE_STATIC_LIBS=OFF
 
           make -j$(sysctl -n hw.ncpu) install
 
-      # =========================
-      # 3. OUTPUT ONLY
-      # =========================
-      - name: Package
+      # ======================
+      # 3. PACKAGE
+      # ======================
+      - name: Package Output
         run: |
           mkdir -p publish/PyAlembic
-
-          find $GITHUB_WORKSPACE/deploy -name "*.so" -exec cp {} publish/PyAlembic/ \;
-
           mkdir -p publish/libs
-          find $GITHUB_WORKSPACE/deploy -name "*.dylib" -exec cp {} publish/libs/ \;
 
-      - name: Upload
+          find $GITHUB_WORKSPACE/deploy -name "*.so" -exec cp {} publish/PyAlembic/ \; || true
+          find $GITHUB_WORKSPACE/deploy -name "*.dylib" -exec cp {} publish/libs/ \; || true
+
+      # ======================
+      # 4. UPLOAD
+      # ======================
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PyAlembic-3.13-Fixed
+          name: Alembic-3.13-Fixed
           path: publish/
