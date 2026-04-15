@@ -12,7 +12,7 @@ jobs:
     steps:
       - name: Checkout Repositories
         run: |
-          # git clone --depth 1 https://github.com alembic
+          git clone --depth 1 https://github.com/alembic/alembic alembic
           # Imath와 PyImath를 각각 가져옵니다.
           git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
           git clone --depth 1 https://github.com/AcademySoftwareFoundation/openexr.git pyimath
@@ -64,19 +64,19 @@ jobs:
           find $PREFIX -name "PyImath*.cmake" -exec cp -v {} $IMATH_CMAKE_DIR/ \;
       
           # 3. Alembic 빌드
-          # cd $ROOT/alembic && mkdir -p build && cd build
-          # cmake .. \
-          #   -DCMAKE_INSTALL_PREFIX=$PREFIX \
-          #   -DCMAKE_BUILD_TYPE=Release \
-          #   -DUSE_PYALEMBIC=ON \
-          #   -DUSE_HDF5=ON \
-          #   -DALEMBIC_SHARED_LIBS=ON \
-          #   -DPYTHON_EXECUTABLE=$(which python3) \
-          #   -DImath_DIR=$PREFIX/lib/cmake/Imath \
-          #   -DBoost_PYTHON_LIBRARY_RELEASE=$ORIGINAL_BOOST_PY \
-          #   -DBoost_NO_BOOST_CMAKE=ON \
-          #   -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
-          # make -j$(sysctl -n hw.ncpu) install
+          cd $ROOT/alembic && mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_PYALEMBIC=ON \
+            -DUSE_HDF5=ON \
+            -DALEMBIC_SHARED_LIBS=ON \
+            -DPYTHON_EXECUTABLE=$(which python3) \
+            -DImath_DIR=$PREFIX/lib/cmake/Imath \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$ORIGINAL_BOOST_PY \
+            -DBoost_NO_BOOST_CMAKE=ON \
+            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
+          make -j$(sysctl -n hw.ncpu) install
 
       - name: Package and Rename Libraries
         run: |
