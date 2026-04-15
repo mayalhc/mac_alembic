@@ -34,30 +34,34 @@ jobs:
           cmake .. -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Build PyImath (Python 3.13)
+      - name: Build PyImath (Python 3.13 Target)
         run: |
           cd pyimath
           mkdir build && cd build
-          # Imath가 설치된 경로($GITHUB_WORKSPACE/dist)를 참조하여 빌드
+          # Python 3.13 경로를 명시적으로 지정하여 3.14 혼선을 방지합니다.
+          PY_EXE=$(which python3)
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
-            -DPYTHON_EXECUTABLE=$(which python3) \
-            -DBOOST_ROOT=$(brew --prefix boost)
+            -DPYTHON_EXECUTABLE=$PY_EXE \
+            -DPYTHON_LIBRARY=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib \
+            -DPYTHON_INCLUDE_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))") \
+            -DBOOST_ROOT=$(brew --prefix boost) \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib")
           make -j$(sysctl -n hw.ncpu) install
 
       - name: Collect 3.13 Core Files
         run: |
           mkdir -p output_313
           
-          # 1. libPyImath 추출
+          # 1. libPyImath_Python3_13 추출
           echo "Finding libPyImath..."
           find $GITHUB_WORKSPACE/dist/lib -name "libPyImath_Python3_13*.dylib" -exec cp {} output_313/ \;
           
-          # 2. libboost_python 추출
+          # 2. libboost_python313 추출
           echo "Finding libboost_python..."
-          find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" -type f -exec cp {} output_313/ \;
+          find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" -type f -exec cp {} output_313/ \;
           
           # 3. libpython3.13.dylib 추출
           echo "Finding libpython3.13..."
