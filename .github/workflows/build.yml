@@ -1,4 +1,4 @@
-name: PyAlembic 3.13 Final Stand (Force Integration)
+name: PyAlembic 3.13 Final FIXED (PyImathTargets Hard Fix)
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: macos-latest
     
     permissions:
-      contents: write   # 🔥 이거 없으면 push 403 난다
+      contents: write
 
     steps:
       - name: Checkout My Repo
@@ -27,13 +27,13 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Install Build Tools
+      - name: Install Tools
         run: |
           brew update
           brew install cmake hdf5 boost boost-python3 pybind11
           python3 -m pip install numpy
 
-      - name: Build Everything
+      - name: Build All
         run: |
           export ROOT=$GITHUB_WORKSPACE
           export PREFIX=$ROOT/deploy
@@ -43,7 +43,7 @@ jobs:
           cd imath && mkdir build && cd build
           cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
-      
+
           # 2. PyImath (OpenEXR)
           cd $ROOT/pyimath && mkdir build && cd build
           BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
@@ -61,13 +61,30 @@ jobs:
             -DBoost_NO_BOOST_CMAKE=ON \
             -Dpybind11_DIR=$PYBIND11_DIR
           make -j$(sysctl -n hw.ncpu) install
-      
-          # 🔥 PyImathTargets 강제 복사
-          IMATH_CMAKE_DIR=$PREFIX/lib/cmake/Imath
-          mkdir -p $IMATH_CMAKE_DIR
-          find $PREFIX -name "PyImath*.cmake" -exec cp {} $IMATH_CMAKE_DIR/ \;
-      
-          # 3. Alembic
+
+          # 🔥🔥 핵심 FIX (여기 제대로 해야됨)
+          echo "==== FIX PyImathTargets ===="
+          
+          TARGET=$(find $PREFIX -name "PyImathTargets.cmake" | head -n 1)
+          
+          if [ -z "$TARGET" ]; then
+            echo "❌ PyImathTargets.cmake NOT FOUND → 빌드 실패"
+            exit 1
+          fi
+          
+          echo "FOUND: $TARGET"
+          
+          mkdir -p $PREFIX/lib/cmake/Imath
+          cp "$TARGET" $PREFIX/lib/cmake/Imath/
+          
+          # 같이 필요한 파일도 복사 (이거 중요)
+          DIR=$(dirname "$TARGET")
+          cp $DIR/PyImath*.cmake $PREFIX/lib/cmake/Imath/ || true
+          
+          echo "==== CHECK Imath CMAKE DIR ===="
+          ls -l $PREFIX/lib/cmake/Imath/
+
+          # 3. Alembic (이제 안 터짐)
           cd $ROOT/alembic && mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
@@ -81,12 +98,11 @@ jobs:
             -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Save to Repo (🔥 핵심)
+      - name: Save to Repo
         run: |
           mkdir -p PyAlembic/alembic
           mkdir -p PyAlembic/libs
           
-          # .so + .dylib 둘 다 저장
           find deploy -name "*.so" -exec cp {} PyAlembic/alembic/ \; || true
           find deploy -name "*.dylib" -exec cp {} PyAlembic/alembic/ \; || true
           
@@ -102,5 +118,5 @@ jobs:
           git config --global user.email "github-actions@github.com"
           
           git add PyAlembic
-          git commit -m "Auto build PyAlembic 3.13" || echo "No changes"
+          git commit -m "Auto build PyAlembic 3.13 (fixed)" || echo "No changes"
           git push
