@@ -12,11 +12,10 @@ jobs:
     steps:
       - name: Checkout All Sources
         run: |
-         # Imath와 PyImath를 각각 가져옵니다.
-          git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
-          git clone --depth 1 https://github.com/AcademySoftwareFoundation/openexr.git pyimath
-          git clone --depth 1 https://github.com/AcademySoftwareFoundation/openexr.git openexr
-          
+          # ✅ 올바른 실제 repo 주소로 수정
+          git clone --depth 1 https://github.com/alembic/alembic.git ${GITHUB_WORKSPACE}/alembic
+          git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git ${GITHUB_WORKSPACE}/imath
+          git clone --depth 1 https://github.com/AcademySoftwareFoundation/openexr.git ${GITHUB_WORKSPACE}/openexr
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
@@ -31,68 +30,65 @@ jobs:
 
       - name: 1. Build Imath (Static)
         run: |
-          cd imath && mkdir build && cd build
+          cd ${GITHUB_WORKSPACE}/imath
+          mkdir build && cd build
           cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/deps \
+            -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/deps \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DPYIMATH_ENABLE=OFF
+            -DBUILD_SHARED_LIBS=OFF
           make -j$(sysctl -n hw.ncpu) install
 
       - name: 2. Build PyImath (Source Integration)
         run: |
-          # OpenEXR 내의 PyImath를 3.13용으로 강제 빌드
-          cd openexr && mkdir build && cd build
+          cd ${GITHUB_WORKSPACE}/openexr
+          mkdir build && cd build
           PY_EXE=$(which python3)
           cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/deps \
+            -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/deps \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=OFF \
             -DOPENEXR_FORCE_INTERNAL_IMATH=OFF \
-            -DImath_DIR=$GITHUB_WORKSPACE/deps/lib/cmake/Imath \
+            -DImath_DIR=${GITHUB_WORKSPACE}/deps/lib/cmake/Imath \
             -DPYIMATH_ENABLE=ON \
             -DPYTHON_EXECUTABLE=$PY_EXE \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib")
-          
-          # 오직 PyImath 관련 타겟만 빌드해서 정적 라이브러리 추출
+            -DBoost_PYTHON_LIBRARY_RELEASE=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" | head -n 1)
           make -j$(sysctl -n hw.ncpu) install
 
       - name: 3. Build Alembic (Ultimate Link)
         run: |
-          cd alembic && mkdir build && cd build
+          cd ${GITHUB_WORKSPACE}/alembic
+          mkdir -p build && cd build
           
           PY_PREFIX=$(python3 -c "import sys; print(sys.prefix)")
-          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib")
+          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" | head -n 1)
           
           cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
+            -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/dist \
             -DCMAKE_BUILD_TYPE=Release \
             -DUSE_PYALEMBIC=ON \
             -DUSE_HDF5=ON \
             -DALEMBIC_SHARED_LIBS=OFF \
             -DPYTHON_EXECUTABLE=$(which python3) \
-            -DImath_DIR=$GITHUB_WORKSPACE/deps/lib/cmake/Imath \
+            -DImath_DIR=${GITHUB_WORKSPACE}/deps/lib/cmake/Imath \
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
             -DBoost_NO_BOOST_CMAKE=ON \
-            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deps;$(brew --prefix boost-python3)"
+            -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/deps;$(brew --prefix boost-python3)"
           
           make -j$(sysctl -n hw.ncpu) install
 
       - name: 4. Final Package Collection
         run: |
-          mkdir -p final_out/alembic
-          # 핵심: 빌드된 alembic.so와 관련 파이썬 파일 수집
-          find $GITHUB_WORKSPACE/dist -name "*.so" -exec cp {} final_out/alembic/ \;
-          cp -r alembic/python/PyAlembic/* final_out/alembic/ || true
+          mkdir -p ${GITHUB_WORKSPACE}/final_out/alembic
+          find ${GITHUB_WORKSPACE}/dist -name "*.so" -exec cp {} ${GITHUB_WORKSPACE}/final_out/alembic/ \;
+          cp -r ${GITHUB_WORKSPACE}/alembic/python/PyAlembic/* ${GITHUB_WORKSPACE}/final_out/alembic/ || true
           
-          # 의존성 dylib 수집 (최소화)
-          mkdir -p final_out/libs
-          find $GITHUB_WORKSPACE/deps/lib -name "*.dylib" -exec cp {} final_out/libs/ \; || true
-          cp $BOOST_PY_LIB final_out/libs/ || true
-          cp $(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib final_out/libs/ || true
+          mkdir -p ${GITHUB_WORKSPACE}/final_out/libs
+          find ${GITHUB_WORKSPACE}/deps/lib -name "*.dylib" -exec cp {} ${GITHUB_WORKSPACE}/final_out/libs/ \; || true
+          cp $(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" | head -n 1) ${GITHUB_WORKSPACE}/final_out/libs/ || true
+          cp $(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib ${GITHUB_WORKSPACE}/final_out/libs/ || true
 
       - name: Upload Final Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PyAlembic-3.13-Ultimate-Package
-          path: final_out/
+          path: ${{ github.workspace }}/final_out/
