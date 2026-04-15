@@ -1,4 +1,4 @@
-name: Build Alembic Python (macOS)
+name: Build PyAlembic (Python 3.11, macOS)
 
 on:
   workflow_dispatch:
@@ -8,27 +8,30 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Setup Python
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           brew update
           brew install boost boost-python3 imath hdf5 cmake
-          python -m pip install --upgrade pip numpy
+
+          python -m pip install --upgrade pip
+          python -m pip install numpy
 
       - name: Clone Alembic
-        run: git clone https://github.com/alembic/alembic.git
+        run: |
+          git clone https://github.com/alembic/alembic.git
 
-      - name: Patch Imath
+      - name: Patch Imath (필수)
         run: |
           BREW_PREFIX=$(brew --prefix)
           mkdir -p $BREW_PREFIX/lib/cmake/Imath
           echo "add_library(Imath::PyImath INTERFACE IMPORTED)" > $BREW_PREFIX/lib/cmake/Imath/PyImathTargets.cmake
 
-      - name: Build
+      - name: Build PyAlembic
         run: |
           cd alembic
           mkdir build
@@ -45,5 +48,6 @@ jobs:
 
           make -j4
 
-      - name: Check
-        run: ls -al alembic/build/lib || true
+      - name: Verify build
+        run: |
+          ls -al alembic/build/lib || true
