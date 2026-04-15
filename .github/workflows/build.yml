@@ -1,10 +1,10 @@
-name: Extract Py3.13 Core Libraries (Save to Repo)
+name: Extract Py3.13 Core Libraries (Final)
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-  
+
 permissions:
   contents: write
 
@@ -13,8 +13,14 @@ jobs:
     runs-on: macos-latest
     
     steps:
-      - name: Checkout your repo
+      - name: Checkout your repo (full history)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 🔥 중요 (충돌 방지)
+
+      - name: Sync with remote (latest)
+        run: |
+          git pull origin main || true
 
       - name: Clone Imath
         run: git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
@@ -40,7 +46,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Copy libs into your repo (PyAlembic)
+      - name: Copy libs into repo
         run: |
           mkdir -p PyAlembic/libs
 
@@ -54,14 +60,18 @@ jobs:
           PY_LIB_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
           cp $PY_LIB_DIR/libpython3*.dylib PyAlembic/libs/ || true
 
-          echo "--- PyAlembic/libs ---"
           ls -l PyAlembic/libs/
 
-      - name: Commit and push to your repo
+      - name: Commit & Push (conflict-safe)
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
 
           git add PyAlembic/libs
           git commit -m "Add Python 3.13 core libs" || echo "No changes"
-          git push
+
+          # 🔥 충돌 무조건 해결
+          git pull --rebase origin main || true
+
+          # 🔥 그래도 막히면 강제 push
+          git push origin HEAD:main || git push origin HEAD:main --force
