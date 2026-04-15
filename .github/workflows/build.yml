@@ -27,7 +27,7 @@ jobs:
       - name: Clone and Build
         run: |
           # 1. 원본 소스 주소를 정확하게 입력 (옵션 도움말이 뜨지 않도록 주소만 명시)
-          git clone https://github.com/mayalhc/PyAlembic.git source_dir
+          git clone https://github.com/mayalhc/mac_alembic/PyAlembic.git source_dir
           
           # 2. 폴더 이동
           cd source_dir
