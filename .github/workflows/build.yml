@@ -81,6 +81,7 @@ jobs:
             -DALEMBIC_SHARED_LIBS=ON \
             -DPYTHON_EXECUTABLE=$PY_EXE \
             -DImath_DIR=$PREFIX/lib/cmake/Imath \
+            -DOpenEXR_DIR=$PREFIX/lib/cmake/OpenEXR \
             -DPyImath_DIR=$PREFIX/lib/cmake/PyImath \
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
             -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
