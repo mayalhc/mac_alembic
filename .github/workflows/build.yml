@@ -28,7 +28,7 @@ jobs:
       - name: Clone and Build
         run: |
           # 1. 빌드용 소스 코드를 다른 폴더에 받습니다 (충돌 방지)
-          git clone https://github.com/mayalhc/mac_alembic/tree/main/PyAlembic source_dir
+          git clone https://github.com source_dir source_dir
           cd source_dir
           
           # 2. 라이브러리 경로 설정
