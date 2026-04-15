@@ -12,8 +12,9 @@ jobs:
     steps:
       - name: Checkout Source
         run: |
-          git clone https://github.com alembic
-          git clone https://github.com imath
+          git clone https://github.com/alembic/alembic.git
+          git clone https://github.com/AcademySoftwareFoundation/Imath.git imath
+          git clone https://github.com/mayalhc/mac_alembic.git myrepo
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
@@ -32,10 +33,8 @@ jobs:
           mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/deps \
-            -DIMATH_INSTALL_PKGCONFIGDIR=$GITHUB_WORKSPACE/deps/lib/pkgconfig \
             -DPYTHON_EXECUTABLE=$(which python3) \
-            -DPYIMATH_ENABLE=ON \
-            -DIMATH_HALF_USE_LOOKUP_TABLE=ON
+            -DPYIMATH_ENABLE=ON
           make -j$(sysctl -n hw.ncpu)
           make install
 
@@ -44,7 +43,6 @@ jobs:
           cd alembic
           mkdir build && cd build
           
-          # Imath 경로를 위에서 빌드한 deps 폴더로 강제 지정
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DUSE_PYALEMBIC=ON \
@@ -52,22 +50,23 @@ jobs:
             -DALEMBIC_SHARED_LIBS=ON \
             -DPYTHON_EXECUTABLE=$(which python3) \
             -DImath_DIR=$GITHUB_WORKSPACE/deps/lib/cmake/Imath \
-            -DIMATH_INC_DIR=$GITHUB_WORKSPACE/deps/include/Imath \
-            -DIMATH_LIB_DIR=$GITHUB_WORKSPACE/deps/lib \
             -DBOOST_ROOT=$(brew --prefix boost) \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deps;$(brew --prefix boost-python3)"
           
           make -j$(sysctl -n hw.ncpu)
           make install
 
-      - name: Organize Artifacts
+      - name: Merge with Your PyAlembic
         run: |
           mkdir -p final_output/alembic
-          # 빌드된 .so 라이브러리 수집
-          find alembic/build/python -name "*.so" -exec cp {} final_output/alembic/ \; || true
-          # 파이썬 래퍼 소스 복사
-          cp -r alembic/python/PyAlembic/* final_output/alembic/ || true
-          # 의존성 라이브러리(dylib)도 함께 포함 (런타임 에러 방지)
+
+          # 네 repo PyAlembic 코드 복사
+          cp -r myrepo/PyAlembic/* final_output/alembic/ || true
+
+          # 빌드된 .so 복사
+          find alembic/build -name "*.so" -exec cp {} final_output/alembic/ \; || true
+
+          # dylib 복사
           mkdir -p final_output/libs
           find $GITHUB_WORKSPACE/deps/lib -name "*.dylib" -exec cp {} final_output/libs/ \; || true
 
