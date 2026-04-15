@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-13  # 🔥 안정성 (macos-latest 대신 고정)
 
     steps:
       - name: Checkout repository
@@ -21,30 +21,43 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install alembic boost cmake
+
+          # 🔥 핵심: imath까지 같이 설치
+          brew install alembic boost imath cmake
+
+          # Python build tools
           python -m pip install --upgrade pip
-          python -m pip install setuptools wheel
+          python -m pip install setuptools wheel numpy
 
       - name: Clone and Build
         run: |
-          # 1. 레포 클론
+          set -e  # 🔥 중간에 에러 나면 바로 죽여서 디버깅 쉽게
+
           git clone https://github.com/mayalhc/mac_alembic.git source_dir
-          cd source_dir
+          cd source_dir/PyAlembic
 
-          # 2. PyAlembic 폴더로 이동
-          cd PyAlembic
-
-          # 3. brew 경로 설정
+          # 🔥 brew 경로 안정화
           BREW_PREFIX=$(brew --prefix)
+
           export CPLUS_INCLUDE_PATH=$BREW_PREFIX/include
           export LIBRARY_PATH=$BREW_PREFIX/lib
           export DYLD_LIBRARY_PATH=$BREW_PREFIX/lib
 
-          # 4. Python 빌드 도구
-          python3 -m pip install --upgrade pip setuptools wheel
+          # 🔥 Alembic / Imath 명시 (이거 안 잡으면 imath 에러 터짐)
+          export ALEMBIC_INCLUDE_PATH=$BREW_PREFIX/include
+          export ALEMBIC_LIB_PATH=$BREW_PREFIX/lib
 
-          # 5. 빌드
+          # 🔥 강제 경로 지정 (빌드 실패 방지)
+          export CFLAGS="-I$BREW_PREFIX/include"
+          export LDFLAGS="-L$BREW_PREFIX/lib"
+
+          # 빌드
+          python3 setup.py build_ext --inplace
           python3 setup.py bdist_wheel
+
+      - name: Verify build
+        run: |
+          ls -al source_dir/PyAlembic/dist
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
