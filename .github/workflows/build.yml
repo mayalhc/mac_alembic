@@ -1,4 +1,4 @@
-name: Build PyAlembic for macOS (Python 3.13)
+name: Build PyAlembic for macOS (Python 3.11)
 
 on:
   push:
@@ -16,25 +16,26 @@ jobs:
           git clone https://github.com/AcademySoftwareFoundation/Imath.git imath
           git clone https://github.com/mayalhc/mac_alembic.git myrepo
 
-      - name: Set up Python 3.13
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.11'
 
-      - name: Install Dependencies
+      - name: Install Build Tools
         run: |
           brew update
           brew install cmake hdf5 boost boost-python3
           python3 -m pip install numpy
 
-      - name: Build and Install Imath (with PyImath)
+      - name: Build Imath (Python 3.11 Binding)
         run: |
           cd imath
           mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/deps \
             -DPYTHON_EXECUTABLE=$(which python3) \
-            -DPYIMATH_ENABLE=ON
+            -DPYIMATH_ENABLE=ON \
+            -DIMATH_INSTALL_PKGCONFIGDIR=$GITHUB_WORKSPACE/deps/lib/pkgconfig
           make -j$(sysctl -n hw.ncpu)
           make install
 
@@ -50,28 +51,30 @@ jobs:
             -DALEMBIC_SHARED_LIBS=ON \
             -DPYTHON_EXECUTABLE=$(which python3) \
             -DImath_DIR=$GITHUB_WORKSPACE/deps/lib/cmake/Imath \
+            -DIMATH_INC_DIR=$GITHUB_WORKSPACE/deps/include/Imath \
+            -DIMATH_LIB_DIR=$GITHUB_WORKSPACE/deps/lib \
             -DBOOST_ROOT=$(brew --prefix boost) \
             -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/deps;$(brew --prefix boost-python3)"
           
           make -j$(sysctl -n hw.ncpu)
           make install
 
-      - name: Merge with Your PyAlembic
+      - name: Collect Artifacts
         run: |
           mkdir -p final_output/alembic
+          mkdir -p final_output/libs
 
-          # 네 repo PyAlembic 코드 복사
+          # 네 PyAlembic 코드 포함
           cp -r myrepo/PyAlembic/* final_output/alembic/ || true
 
-          # 빌드된 .so 복사
+          # 빌드된 .so
           find alembic/build -name "*.so" -exec cp {} final_output/alembic/ \; || true
 
-          # dylib 복사
-          mkdir -p final_output/libs
+          # dylib
           find $GITHUB_WORKSPACE/deps/lib -name "*.dylib" -exec cp {} final_output/libs/ \; || true
 
-      - name: Upload
+      - name: Upload Build
         uses: actions/upload-artifact@v4
         with:
-          name: PyAlembic-macOS-Py3.13-Final
+          name: PyAlembic-macOS-Py3.11
           path: final_output/
