@@ -8,54 +8,41 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # 1. 기본 체크아웃
+      # 1. 내 저장소의 파일을 가져옵니다 (이미 PyAlembic 폴더가 포함됨)
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Python (안정 버전으로 먼저 성공 확보)
+      # 2. Python 설정
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       # 3. 의존성 설치
       - name: Install dependencies
         run: |
-          brew update
           brew install alembic boost imath cmake
-
           python -m pip install --upgrade pip
           python -m pip install setuptools wheel numpy
 
-      # 4. 레포 클론
-      - name: Clone PyAlembic source
-        run: |
-          git clone https://github.com/mayalhc/mac_alembic.git
-          ls -al
-
-      # 5. 빌드
+      # 4. 빌드 실행 (경로 수정: 내 저장소 안의 PyAlembic 폴더로 이동)
       - name: Build PyAlembic
         run: |
-          cd mac_alembic/PyAlembic
+          # 이미 체크아웃을 했으므로 바로 폴더로 들어갑니다.
+          cd PyAlembic
 
           BREW_PREFIX=$(brew --prefix)
-
           export CFLAGS="-I$BREW_PREFIX/include"
           export LDFLAGS="-L$BREW_PREFIX/lib"
           export DYLD_LIBRARY_PATH="$BREW_PREFIX/lib"
 
-          # 빌드 (로그 잘 보이게 단계 분리)
-          python setup.py build_ext --inplace
+          # 빌드 수행
           python setup.py bdist_wheel
 
-      # 6. 결과 확인
-      - name: Verify build output
-        run: |
-          ls -al mac_alembic/PyAlembic/dist || echo "No dist folder"
-
-      # 7. 아티팩트 업로드
+      # 5. 아티팩트 업로드
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PyAlembic-macOS-wheel
-          path: mac_alembic/PyAlembic/dist/*.whl
+          # 경로를 실제 파일이 생성된 위치에 맞게 수정
+          path: PyAlembic/dist/*.whl
