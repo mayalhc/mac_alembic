@@ -39,12 +39,18 @@ jobs:
         run: |
           cd imath
           mkdir build && cd build
+      
+          PY_INC=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['include'])")
+      
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
+            -DCMAKE_BUILD_TYPE=Release \
             -DPYIMATH_ENABLE=ON \
-            -DPYTHON_EXECUTABLE=$(which python3) \
-            -DCMAKE_BUILD_TYPE=Release
-          make -j$(sysctl -n hw.ncpu) install
+            -DPython3_EXECUTABLE=$(which python3) \
+            -DPYTHON_INCLUDE_DIR=$PY_INC
+      
+          make -j$(sysctl -n hw.ncpu)
+          make install
 
       - name: Copy libs into repo
         run: |
