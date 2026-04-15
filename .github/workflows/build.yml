@@ -45,15 +45,12 @@ jobs:
           export PREFIX=$ROOT/deploy
           mkdir -p $PREFIX
           
-          # 1. Imath
+          # 1. Imath 빌드
           cd $ROOT/imath && mkdir -p build && cd build
-          cmake .. \
-            -DCMAKE_INSTALL_PREFIX=$PREFIX \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_BUILD_TYPE=Release
+          cmake .. -DCMAKE_INSTALL_PREFIX=$PREFIX -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
           make -j$(sysctl -n hw.ncpu) install
       
-          # 2. PyImath (OpenEXR)
+          # 2. PyImath 빌드 (OpenEXR 소스 내에서 Python 바인딩 활성화)
           cd $ROOT/pyimath && mkdir -p build && cd build
           BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
           PYBIND11_DIR=$(brew --prefix pybind11)/share/cmake/pybind11
@@ -63,22 +60,22 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DImath_DIR=$PREFIX/lib/cmake/Imath \
             -DPYTHON_EXECUTABLE=$(which python3) \
+            -DPYIMATH_ENABLE=ON \
             -DOPENEXR_BUILD_PYTHON=ON \
             -DOPENEXR_FORCE_INTERNAL_IMATH=OFF \
             -DBOOST_ROOT=$(brew --prefix boost) \
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
             -DBoost_NO_BOOST_CMAKE=ON \
             -Dpybind11_DIR=$PYBIND11_DIR
-      
           make -j$(sysctl -n hw.ncpu) install
       
-          # 🔥 핵심 fix
-          TARGET_FILE=$(find $PREFIX -name "PyImathTargets.cmake")
-          if [ -f "$TARGET_FILE" ]; then
-            cp "$TARGET_FILE" "$PREFIX/lib/cmake/Imath/"
-          fi
-      
-          # 3. Alembic
+          # [핵심 수동 보정] Alembic이 찾는 모든 파일을 Imath 폴더로 강제 통합
+          echo "==== FORCE MERGE PyImath Config to Imath Folder ===="
+          # PyImathTargets.cmake가 어디에 있든 Imath 폴더로 복사
+          mkdir -p $PREFIX/lib/cmake/Imath
+          find $PREFIX/lib/cmake -name "PyImath*.cmake" -exec cp -v {} $PREFIX/lib/cmake/Imath/ \;
+          
+          # 3. Alembic 빌드
           cd $ROOT/alembic && mkdir -p build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
@@ -91,7 +88,6 @@ jobs:
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
             -DBoost_NO_BOOST_CMAKE=ON \
             -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
-      
           make -j$(sysctl -n hw.ncpu) install
 
       - name: Package Final Result
