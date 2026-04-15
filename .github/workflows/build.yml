@@ -30,7 +30,7 @@ jobs:
       - name: Build Wheel
         run: |
           # 1. 원본 소스 코드를 현재 작업 디렉토리에 통째로 가져옵니다.
-          git clone https://github.com .
+          git clone https://github.com/mayalhc/mac_alembic .
           
           # 2. 라이브러리 경로 설정 (macOS)
           export CPLUS_INCLUDE_PATH=$(brew --prefix)/include
