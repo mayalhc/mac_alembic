@@ -1,25 +1,20 @@
-name: Extract Py3.13 Core Libraries (Save to Repo)
+name: Extract Py3.13 Core Libraries (PyImath Fixed)
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: macos-latest
     
     steps:
-      - name: Checkout your repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Clone Imath
-        run: git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
+      - name: Checkout Imath and PyImath
+        run: |
+          # Imath와 PyImath를 각각 가져옵니다.
+          git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git imath
+          git clone --depth 1 https://github.com/AcademySoftwareFoundation/openexr.git pyimath
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
@@ -36,34 +31,44 @@ jobs:
         run: |
           cd imath
           mkdir build && cd build
+          cmake .. -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist -DCMAKE_BUILD_TYPE=Release
+          make -j$(sysctl -n hw.ncpu) install
+
+      - name: Build PyImath (Python 3.13)
+        run: |
+          cd pyimath
+          mkdir build && cd build
+          # Imath가 설치된 경로($GITHUB_WORKSPACE/dist)를 참조하여 빌드
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/dist \
             -DCMAKE_BUILD_TYPE=Release \
-            -DPYIMATH_ENABLE=ON \
-            -DPYTHON_EXECUTABLE=$(which python3)
+            -DImath_DIR=$GITHUB_WORKSPACE/dist/lib/cmake/Imath \
+            -DPYTHON_EXECUTABLE=$(which python3) \
+            -DBOOST_ROOT=$(brew --prefix boost)
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: Copy to your repo (PyAlembic)
+      - name: Collect 3.13 Core Files
         run: |
-          mkdir -p PyAlembic/libs
-
-          # 🔥 실제 존재하는 것만 복사됨
-          find $GITHUB_WORKSPACE/dist/lib -name "*PyImath*.dylib" -exec cp {} PyAlembic/libs/ \; || true
-          find $(brew --prefix boost-python3)/lib -name "libboost_python*.dylib" -exec cp {} PyAlembic/libs/ \;
+          mkdir -p output_313
           
+          # 1. libPyImath 추출
+          echo "Finding libPyImath..."
+          find $GITHUB_WORKSPACE/dist/lib -name "libPyImath_Python3_13*.dylib" -exec cp {} output_313/ \;
+          
+          # 2. libboost_python 추출
+          echo "Finding libboost_python..."
+          find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" -type f -exec cp {} output_313/ \;
+          
+          # 3. libpython3.13.dylib 추출
+          echo "Finding libpython3.13..."
           PY_LIB_DIR=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-          cp $PY_LIB_DIR/libpython3*.dylib PyAlembic/libs/ || true
+          cp $PY_LIB_DIR/libpython3.13.dylib output_313/
+          
+          echo "--- FINAL FILE LIST ---"
+          ls -l output_313/
 
-          echo "--- RESULT ---"
-          ls -l PyAlembic/libs/
-
-      - name: Commit & Push
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-
-          git add PyAlembic/libs
-          git commit -m "Add Python 3.13 libs" || echo "No changes"
-
-          git pull --rebase origin main || true
-          git push origin HEAD:main || git push origin HEAD:main --force
+      - name: Upload Core Libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: PyAlembic-Required-Libs-3.13
+          path: output_313/
