@@ -54,14 +54,21 @@ jobs:
             -DBoost_PYTHON_LIBRARY_RELEASE=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" | head -n 1)
           make -j$(sysctl -n hw.ncpu) install
 
-      - name: 3. Build Alembic (Ultimate Link)
+      - name: 3. Build Alembic (Ultimate Link - Force Boost)
         run: |
           cd ${GITHUB_WORKSPACE}/alembic
           mkdir -p build && cd build
           
+          # 1. 파이썬 3.13 경로 명시
           PY_PREFIX=$(python3 -c "import sys; print(sys.prefix)")
-          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python313*.dylib" | head -n 1)
+          PY_INC=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
+          PY_LIB=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")/libpython3.13.dylib
           
+          # 2. 부스트 라이브러리 파일 직접 찾기 (가장 중요한 부분)
+          # libboost_python313 또는 libboost_python3 형태의 파일을 찾습니다.
+          BOOST_PY_LIB=$(find $(brew --prefix boost-python3)/lib -name "libboost_python3*.dylib" | head -n 1)
+          echo "Found Boost Python Lib: $BOOST_PY_LIB"
+
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/dist \
             -DCMAKE_BUILD_TYPE=Release \
@@ -69,12 +76,19 @@ jobs:
             -DUSE_HDF5=ON \
             -DALEMBIC_SHARED_LIBS=OFF \
             -DPYTHON_EXECUTABLE=$(which python3) \
+            -DPYTHON_INCLUDE_DIR=$PY_INC \
+            -DPYTHON_LIBRARY=$PY_LIB \
             -DImath_DIR=${GITHUB_WORKSPACE}/deps/lib/cmake/Imath \
-            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+            -DBOOST_ROOT=$(brew --prefix boost) \
             -DBoost_NO_BOOST_CMAKE=ON \
-            -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/deps;$(brew --prefix boost-python3)"
+            -DBoost_NO_SYSTEM_PATHS=OFF \
+            -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
+            -DBoost_PYTHON_LIBRARY_DEBUG=$BOOST_PY_LIB \
+            -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/deps;$(brew --prefix boost-python3)" \
+            -DALE_PYIMATH_PYTHON3=ON
           
           make -j$(sysctl -n hw.ncpu) install
+
 
       - name: 4. Final Package Collection
         run: |
