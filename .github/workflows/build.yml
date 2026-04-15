@@ -71,15 +71,17 @@ jobs:
 
           # 3. Alembic
           cd $ROOT/alembic && mkdir build && cd build
+          
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_BUILD_TYPE=Release \
             -DUSE_PYALEMBIC=ON \
             -DUSE_HDF5=ON \
-            -DPython3_EXECUTABLE=$PY_EXE \
+            -DPYTHON_EXECUTABLE=$PY_EXE \
             -DImath_DIR=$PREFIX/lib/cmake/Imath \
             -DBoost_PYTHON_LIBRARY_RELEASE=$BOOST_PY_LIB \
-            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3)"
+            -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3);$(brew --prefix pybind11)"
+            
           make -j$(sysctl -n hw.ncpu) install
 
       - name: Save Clean Results to PyAlembic Folder
