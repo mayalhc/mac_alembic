@@ -70,7 +70,7 @@ jobs:
           find $PREFIX -name "PyImath*.cmake" -exec cp -v {} $PREFIX/lib/cmake/Imath/ \;
 
           # 3. Alembic
-          cd $ROOT/alembic/alembic && mkdir build && cd build
+          cd $ROOT/alembic && mkdir build && cd build
           cmake .. \
             -DCMAKE_INSTALL_PREFIX=$PREFIX \
             -DCMAKE_BUILD_TYPE=Release \
