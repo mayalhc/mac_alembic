@@ -2,10 +2,6 @@ name: Build Alembic (External) and Release
 
 on:
   push:
-  workflow_dispatch:
-
-on:
-  push:
     tags:
       - 'v*'
 
