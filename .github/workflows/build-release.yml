@@ -11,50 +11,53 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # 1️⃣ 내 레포
       - name: Checkout My Repo
         uses: actions/checkout@v4
 
-      # 2️⃣ 외부 소스
       - name: Clone PyAlembic Source
         run: git clone https://github.com/null14/PyAlembic-macOS-Build.git source
 
-      # 3️⃣ Python 3.11
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Install Blender
+        run: brew install --cask blender
 
-      # 4️⃣ 의존성
-      - name: Install Dependencies
+      - name: Patch build.sh
         run: |
-          python -m pip install --upgrade pip
-          pip install wheel setuptools build
+          BLENDER_PY=$(ls -d /Applications/Blender.app/Contents/Resources/*/python/bin/python3.11 | head -n 1)
 
-      # 5️⃣ 빌드
+          cat << 'EOF' > source/build.sh
+          #!/bin/bash
+          set -e
+
+          echo "Using Blender Python: $BLENDER_PY"
+
+          export PYTHON_BIN="$BLENDER_PY"
+
+          cd PyAlembic
+
+          $PYTHON_BIN -m pip install --upgrade pip
+          $PYTHON_BIN -m pip install wheel setuptools build
+
+          $PYTHON_BIN -m build
+
+          echo "=== BUILD DONE ==="
+          EOF
+
+          chmod +x source/build.sh
+
       - name: Build
         run: |
-          ls -al
-          ls -al source
-
           cd source
-          ls -al
-
-          chmod +x build.sh
           ./build.sh
 
-      # 6️⃣ 결과 수집
       - name: Collect Artifacts
         run: |
           mkdir -p release
           find source -name "*.whl" -exec cp {} release/ \;
           find source -name "*.dylib" -exec cp {} release/ \;
 
-      # 7️⃣ 확인
       - name: Debug Release Files
         run: ls -al release
 
-      # 8️⃣ 릴리즈
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
