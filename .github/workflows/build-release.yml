@@ -22,25 +22,30 @@ jobs:
 
       - name: Patch build.sh
         run: |
-          BLENDER_PY=$(ls -d /Applications/Blender.app/Contents/Resources/*/python/bin/python3.11 | head -n 1)
-
-          cat << EOF > source/build.sh
+          cat << 'EOF' > source/build.sh
           #!/bin/bash
           set -e
 
-          BLENDER_PY="$BLENDER_PY"
-          echo "Using Blender Python: \$BLENDER_PY"
+          BLENDER_PY=$(ls -d /Applications/Blender.app/Contents/Resources/*/python/bin/python3.11 | head -n 1)
 
-          \$BLENDER_PY -m pip install --upgrade pip
-          \$BLENDER_PY -m pip install wheel setuptools build
+          echo "Using Blender Python: $BLENDER_PY"
 
-          cd \$(dirname "\$0")
+          if [ -z "$BLENDER_PY" ]; then
+            echo "Blender Python not found"
+            exit 1
+          fi
+
+          $BLENDER_PY -m ensurepip || true
+          $BLENDER_PY -m pip install --upgrade pip
+          $BLENDER_PY -m pip install wheel setuptools build
+
+          cd "$(dirname "$0")"
 
           if [ -d "PyAlembic" ]; then
             cd PyAlembic
           fi
 
-          \$BLENDER_PY -m build
+          $BLENDER_PY -m build
 
           echo "=== BUILD DONE ==="
           EOF
