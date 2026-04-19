@@ -1,0 +1,29 @@
+name: Build and Release macOS Alembic
+
+on:
+  push:
+    tags:
+      - 'v*' # v1.0, v2.0 같은 태그를 푸시할 때 실행
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 여기에 빌드 명령어를 넣습니다 (기존 null14 저장소의 빌드 스크립트 참고)
+      - name: Build PyAlembic
+        run: |
+          chmod +x ./build.sh # 만약 빌드 스크립트가 있다면
+          ./build.sh
+
+      # 빌드된 결과물을 릴리스에 업로드
+      - name: Create Release and Upload
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/*.whl       # 빌드 결과물이 생기는 경로로 수정
+            build/*.dylib     # 필요한 파일들을 여기에 적어주세요
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
