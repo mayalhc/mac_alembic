@@ -24,20 +24,23 @@ jobs:
         run: |
           BLENDER_PY=$(ls -d /Applications/Blender.app/Contents/Resources/*/python/bin/python3.11 | head -n 1)
 
-          cat << 'EOF' > source/build.sh
+          cat << EOF > source/build.sh
           #!/bin/bash
           set -e
 
-          echo "Using Blender Python: $BLENDER_PY"
+          BLENDER_PY="$BLENDER_PY"
+          echo "Using Blender Python: \$BLENDER_PY"
 
-          export PYTHON_BIN="$BLENDER_PY"
+          \$BLENDER_PY -m pip install --upgrade pip
+          \$BLENDER_PY -m pip install wheel setuptools build
 
-          cd PyAlembic
+          cd \$(dirname "\$0")
 
-          $PYTHON_BIN -m pip install --upgrade pip
-          $PYTHON_BIN -m pip install wheel setuptools build
+          if [ -d "PyAlembic" ]; then
+            cd PyAlembic
+          fi
 
-          $PYTHON_BIN -m build
+          \$BLENDER_PY -m build
 
           echo "=== BUILD DONE ==="
           EOF
