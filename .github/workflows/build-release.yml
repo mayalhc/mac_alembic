@@ -26,7 +26,7 @@ jobs:
           #!/bin/bash
           set -e
 
-          BLENDER_PY=$(ls -d /Applications/Blender.app/Contents/Resources/*/python/bin/python3.11 | head -n 1)
+          BLENDER_PY=$(find /Applications/Blender.app -type f -path "*/python/bin/python3.*" | head -n 1)
 
           echo "Using Blender Python: $BLENDER_PY"
 
