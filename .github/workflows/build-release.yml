@@ -1,29 +1,74 @@
-name: Build and Release macOS Alembic
+name: Build Alembic (External) and Release
+
+on:
+  push:
+  workflow_dispatch:
 
 on:
   push:
     tags:
-      - 'v*' # v1.0, v2.0 같은 태그를 푸시할 때 실행
+      - 'v*'
 
 jobs:
   build:
     runs-on: macos-latest
+
     steps:
-      - name: Checkout Code
+      # 1️⃣ 내 레포 (릴리즈 대상)
+      - name: Checkout My Repo
         uses: actions/checkout@v4
 
-      # 여기에 빌드 명령어를 넣습니다 (기존 null14 저장소의 빌드 스크립트 참고)
-      - name: Build PyAlembic
+      # 2️⃣ 외부 소스 가져오기
+      - name: Clone PyAlembic Source
         run: |
-          chmod +x ./build.sh # 만약 빌드 스크립트가 있다면
+          git clone https://github.com/null14/PyAlembic-macOS-Build.git source
+
+      # 3️⃣ Python 3.11 (Blender 기준)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 4️⃣ 기본 빌드 툴
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install wheel setuptools build
+
+      # 5️⃣ 🔥 빌드 (경로 문제 해결 완료 버전)
+      - name: Build
+        run: |
+          echo "==== ROOT FILES ===="
+          ls -al
+
+          echo "==== CLONE CHECK ===="
+          ls -al source
+
+          cd source
+
+          echo "==== INSIDE SOURCE ===="
+          ls -al
+
+          chmod +x build.sh
           ./build.sh
 
-      # 빌드된 결과물을 릴리스에 업로드
-      - name: Create Release and Upload
+      # 6️⃣ 결과 수집
+      - name: Collect Artifacts
+        run: |
+          mkdir -p release
+          find source -name "*.whl" -exec cp {} release/ \;
+          find source -name "*.dylib" -exec cp {} release/ \;
+
+      # 7️⃣ 결과 확인
+      - name: Debug Release Files
+        run: |
+          echo "==== RELEASE FILES ===="
+          ls -al release
+
+      # 8️⃣ 릴리즈 생성 + 업로드
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            build/*.whl       # 빌드 결과물이 생기는 경로로 수정
-            build/*.dylib     # 필요한 파일들을 여기에 적어주세요
+          files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
