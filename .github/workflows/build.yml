@@ -1,4 +1,4 @@
-name: Build PyAlembic for Python 3.13 (macOS)
+name: Build Alembic 3.13 Stable (Fixed for Python 3.13)
 
 on:
   push:
@@ -6,45 +6,102 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-macos:
+  build:
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
-      # 1. 본인 저장소 체크아웃 (워크플로 파일을 읽기 위함)
-      - name: Checkout repository
+      - name: Checkout Alembic
         uses: actions/checkout@v4
+        with:
+          repository: alembic/alembic
+          path: alembic
 
-      # 2. Python 3.13 및 필수 도구 설치
+      - name: Checkout Imath
+        uses: actions/checkout@v4
+        with:
+          repository: AcademySoftwareFoundation/Imath
+          path: imath
+
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      - name: Install build tools
+      - name: Install Dependencies
         run: |
-          brew install alembic boost cmake
-          python -m pip install --upgrade pip
-          python -m pip install setuptools wheel
+          brew update
+          brew install cmake hdf5 boost boost-python3
+          python3 -m pip install numpy
 
-      # 3. 중요: 빌드할 실제 소스(PyAlembic)를 'py_src' 폴더로 가져오기
-      - name: Clone External PyAlembic Source
+      # ======================
+      # 1. IMATH (수정됨: Python 옵션 추가)
+      # ======================
+      - name: Build Imath
         run: |
-          git clone https://github.com/mayalhc/mac_alembic py_src
+          export ROOT=$GITHUB_WORKSPACE
+          export PREFIX=$ROOT/deploy
+          mkdir -p $PREFIX
 
-      # 4. 'py_src' 폴더 안으로 들어가서 빌드 실행
-      - name: Build Wheel
-        working-directory: ./py_src
+          cd $ROOT/imath
+          mkdir -p build && cd build
+
+          # -DPYTHON=ON 옵션이 있어야 libPyImath dylib가 생성됩니다.
+          cmake .. \
+            -DCMAKE_INSTALL_PREFIX=$PREFIX \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DPYTHON=ON \
+            -DPython3_EXECUTABLE=$(which python3) \
+            -DIMATH_INSTALL_PKG_CONFIG=ON
+
+          make -j$(sysctl -n hw.ncpu) install
+
+      # ======================
+      # 2. ALEMBIC (수정됨: PyAlembic 활성화 및 경로 보정)
+      # ======================
+      # - name: Build Alembic
+      #   run: |
+      #     export ROOT=$GITHUB_WORKSPACE
+      #     export PREFIX=$ROOT/deploy
+      #     export PY_EXE=$(which python3)
+
+      #     cd $ROOT/alembic
+      #     mkdir -p build && cd build
+
+      #     # USE_PYALEMBIC=ON으로 변경하여 파이썬 바인딩 생성
+      #     cmake .. \
+      #       -DCMAKE_INSTALL_PREFIX=$PREFIX \
+      #       -DCMAKE_BUILD_TYPE=Release \
+      #       -DUSE_PYALEMBIC=ON \
+      #       -DUSE_HDF5=ON \
+      #       -DALEMBIC_SHARED_LIBS=ON \
+      #       -DPYTHON_EXECUTABLE=$PY_EXE \
+      #       -DImath_DIR=$PREFIX/lib/cmake/Imath \
+      #       -DCMAKE_PREFIX_PATH="$PREFIX;$(brew --prefix boost-python3)" \
+      #       -DBoost_NO_BOOST_CMAKE=OFF \
+      #       -DBoost_USE_STATIC_LIBS=OFF
+
+      #     make -j$(sysctl -n hw.ncpu) install
+
+      # ======================
+      # 3. PACKAGE
+      # ======================
+      - name: Package Output
         run: |
-          # 라이브러리 경로 설정
-          export CPLUS_INCLUDE_PATH=$(brew --prefix)/include
-          export LIBRARY_PATH=$(brew --prefix)/lib
-          
-          # 빌드 실행
-          python3 setup.py bdist_wheel
+          mkdir -p publish/PyAlembic
+          mkdir -p publish/libs
 
-      # 5. 결과물 저장
+          # .so 파일(Python 모듈)과 .dylib 파일(라이브러리) 수집
+          find $GITHUB_WORKSPACE/deploy -name "*.so" -exec cp {} publish/PyAlembic/ \; || true
+          find $GITHUB_WORKSPACE/deploy -name "*.dylib" -exec cp -R {} publish/libs/ \; || true
+
+      # ======================
+      # 4. UPLOAD
+      # ======================
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PyAlembic-Python3.13-macOS
-          path: py_src/dist/*.whl
+          name: Alembic-3.13-Fixed
+          path: publish/
