@@ -14,57 +14,61 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # deps
+      # 1. 의존성 설치
       - name: Install Dependencies
         run: |
           brew update
           brew install cmake boost imath openexr zlib
 
-      # alembic source
+      # 2. Alembic 소스 가져오기
       - name: Clone Alembic
         run: |
           git clone https://github.com/alembic/alembic.git
           cd alembic
           git submodule update --init --recursive
 
-      # build alembic (C++)
-      - name: Build Alembic
+      # 3. Alembic C++ 라이브러리 빌드
+      - name: Build Alembic (C++)
         run: |
-          mkdir alembic/build
+          mkdir -p alembic/build
           cd alembic/build
 
           cmake .. \
             -DUSE_PYALEMBIC=ON \
             -DUSE_HDF5=OFF \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DALE_PYTHON_VERSION=3
 
           make -j$(sysctl -n hw.ncpu)
 
-      # build PyAlembic (python binding)
+      # 4. PyAlembic 빌드 (Python Binding)
       - name: Build PyAlembic
         run: |
-          cd alembic/build/python/PyAlembic
-
           python3 -m pip install --upgrade pip
           python3 -m pip install wheel setuptools
-
+          
+          # 보통 setup.py는 소스 트리의 python/PyAlembic에 있습니다.
+          cd alembic/python/PyAlembic
           python3 setup.py bdist_wheel
 
-      # collect
+      # 5. 결과물 수집 (경로를 더 폭넓게 검색)
       - name: Collect Artifacts
         run: |
-          mkdir -p release
-          find alembic -name "*.whl" -exec cp {} release/ \;
-          find alembic -name "*.dylib" -exec cp {} release/ \;
+          mkdir -p release_assets
+          # 빌드된 wheel 파일 찾기
+          find . -name "*.whl" -exec cp {} release_assets/ \;
+          # 빌드된 dylib 파일 찾기 (필요한 경우)
+          find . -name "*.dylib" -exec cp {} release_assets/ \;
+          
+          echo "### 수집된 파일 목록 ###"
+          ls -R release_assets
 
-      # debug
-      - name: Debug
-        run: ls -al release
-
-      # release
-      - name: Create Release
+      # 6. 릴리스 생성 및 업로드
+      - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*
+          files: |
+            release_assets/*.whl
+            release_assets/*.dylib
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
