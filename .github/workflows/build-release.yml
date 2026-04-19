@@ -1,4 +1,4 @@
-name: Build Alembic (External) and Release
+name: Build Alembic + PyAlembic (macOS)
 
 on:
   push:
@@ -8,42 +8,60 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-13
 
     steps:
-      - name: Checkout My Repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Clone PyAlembic Source
-        run: git clone https://github.com/null14/PyAlembic-macOS-Build.git source
-
-      - name: Install Blender
-        run: brew install --cask blender
-
-      - name: Build Directly (no build.sh)
+      # deps
+      - name: Install Dependencies
         run: |
-          BLENDER_PY=$(find /Applications/Blender.app -type f -path "*/python/bin/python3.*" | head -n 1)
+          brew update
+          brew install cmake boost imath openexr zlib
 
-          echo "Using Blender Python: $BLENDER_PY"
-          if [ -z "$BLENDER_PY" ]; then exit 1; fi
+      # alembic source
+      - name: Clone Alembic
+        run: |
+          git clone https://github.com/alembic/alembic.git
+          cd alembic
+          git submodule update --init --recursive
 
-          $BLENDER_PY -m ensurepip || true
-          $BLENDER_PY -m pip install --upgrade pip
-          $BLENDER_PY -m pip install wheel setuptools
+      # build alembic (C++)
+      - name: Build Alembic
+        run: |
+          mkdir alembic/build
+          cd alembic/build
 
-          cd source/PyAlembic
+          cmake .. \
+            -DUSE_PYALEMBIC=ON \
+            -DUSE_HDF5=OFF \
+            -DCMAKE_BUILD_TYPE=Release
 
-          $BLENDER_PY setup.py bdist_wheel
+          make -j$(sysctl -n hw.ncpu)
 
+      # build PyAlembic (python binding)
+      - name: Build PyAlembic
+        run: |
+          cd alembic/build/python/PyAlembic
+
+          python3 -m pip install --upgrade pip
+          python3 -m pip install wheel setuptools
+
+          python3 setup.py bdist_wheel
+
+      # collect
       - name: Collect Artifacts
         run: |
           mkdir -p release
-          find source -name "*.whl" -exec cp {} release/ \;
-          find source -name "*.dylib" -exec cp {} release/ \;
+          find alembic -name "*.whl" -exec cp {} release/ \;
+          find alembic -name "*.dylib" -exec cp {} release/ \;
 
-      - name: Debug Release Files
+      # debug
+      - name: Debug
         run: ls -al release
 
+      # release
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
