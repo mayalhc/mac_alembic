@@ -20,42 +20,20 @@ jobs:
       - name: Install Blender
         run: brew install --cask blender
 
-      - name: Patch build.sh
+      - name: Build Directly (no build.sh)
         run: |
-          cat << 'EOF' > source/build.sh
-          #!/bin/bash
-          set -e
-
           BLENDER_PY=$(find /Applications/Blender.app -type f -path "*/python/bin/python3.*" | head -n 1)
 
           echo "Using Blender Python: $BLENDER_PY"
-
-          if [ -z "$BLENDER_PY" ]; then
-            echo "Blender Python not found"
-            exit 1
-          fi
+          if [ -z "$BLENDER_PY" ]; then exit 1; fi
 
           $BLENDER_PY -m ensurepip || true
           $BLENDER_PY -m pip install --upgrade pip
-          $BLENDER_PY -m pip install wheel setuptools build
+          $BLENDER_PY -m pip install wheel setuptools
 
-          cd "$(dirname "$0")"
+          cd source/PyAlembic
 
-          if [ -d "PyAlembic" ]; then
-            cd PyAlembic
-          fi
-
-          $BLENDER_PY -m build
-
-          echo "=== BUILD DONE ==="
-          EOF
-
-          chmod +x source/build.sh
-
-      - name: Build
-        run: |
-          cd source
-          ./build.sh
+          $BLENDER_PY setup.py bdist_wheel
 
       - name: Collect Artifacts
         run: |
