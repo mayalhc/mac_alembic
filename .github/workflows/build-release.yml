@@ -9,56 +9,228 @@ on:
 jobs:
   build:
     runs-on: macos-13
-    permissions: # 릴리스 생성을 위해 필수
+    permissions:
       contents: write
 
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+
     steps:
+      # ============================================================
+      # Checkout
+      # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      # ============================================================
+      # Setup Python
+      # ============================================================
+      - name: Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # 버전을 명시하는 것이 안정적입니다.
+          python-version: ${{ matrix.python-version }}
 
+      # ============================================================
+      # Set version variables
+      # ============================================================
+      - name: Set PY_SHORT
+        run: |
+          PY_SHORT=$(echo "${{ matrix.python-version }}" | tr -d '.')
+          echo "PY_SHORT=$PY_SHORT" >> $GITHUB_ENV
+
+      # ============================================================
+      # Install Dependencies (cmake + ninja only)
+      # ============================================================
       - name: Install Dependencies
         run: |
-          brew install cmake boost imath openexr zlib
+          brew install cmake ninja
 
+      # ============================================================
+      # Verify Python
+      # ============================================================
+      - name: Verify Python
+        run: |
+          which python
+          python --version
+          python -c "
+          import sys
+          import sysconfig
+          print('Executable:', sys.executable)
+          print('Include:', sysconfig.get_paths()['include'])
+          "
+
+      # ============================================================
+      # Build Boost Python
+      # ============================================================
+      - name: Build Boost Python ${{ matrix.python-version }}
+        run: |
+          set -eux
+
+          BOOST_VERSION=1.91.0
+          BOOST_FOLDER=boost_1_91_0
+
+          curl -L \
+            https://archives.boost.io/release/${BOOST_VERSION}/source/${BOOST_FOLDER}.tar.gz \
+            -o boost.tar.gz
+
+          tar -xf boost.tar.gz
+          cd ${BOOST_FOLDER}
+
+          PYTHON_BIN=$(which python)
+
+          ./bootstrap.sh \
+            --with-python="$PYTHON_BIN" \
+            --with-python-version=${{ matrix.python-version }}
+
+          ./b2 \
+            -j$(sysctl -n hw.ncpu) \
+            link=shared \
+            runtime-link=shared \
+            threading=multi \
+            variant=release \
+            python=${{ matrix.python-version }} \
+            --with-python \
+            install \
+            --prefix=$HOME/boost-install
+
+          echo "BOOST_ROOT=$HOME/boost-install" >> $GITHUB_ENV
+
+          ls -la $HOME/boost-install/lib | grep boost_python
+
+      # ============================================================
+      # Install NumPy (Imath PyImathNumpy 빌드용)
+      # ============================================================
+      - name: Install NumPy for Imath
+        run: |
+          set -eux
+          python -m pip install numpy
+
+      # ============================================================
+      # Build Imath (with PyImath)
+      # ============================================================
+      - name: Build Imath with PyImath
+        run: |
+          set -eux
+
+          git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git Imath
+
+          mkdir -p Imath/build
+          cd Imath/build
+
+          PYTHON_BIN=$(which python)
+
+          cmake .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYTHON=ON \
+            -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_INSTALL_PREFIX=$HOME/imath-install \
+            -DPython3_EXECUTABLE="$PYTHON_BIN" \
+            -DBoost_ROOT="$HOME/boost-install" \
+            -DBoost_NO_SYSTEM_PATHS=ON \
+            -DBoost_USE_MULTITHREADED=ON \
+            -DBoost_USE_STATIC_LIBS=OFF
+
+          ninja -j$(sysctl -n hw.ncpu)
+          ninja install
+
+          echo "IMATH_ROOT=$HOME/imath-install" >> $GITHUB_ENV
+
+          ls -la $HOME/imath-install/lib
+
+      # ============================================================
+      # Clone Alembic
+      # ============================================================
       - name: Clone Alembic
         run: |
-          git clone https://github.com/alembic/alembic.git
-          cd alembic
-          git submodule update --init --recursive
+          set -eux
+          git clone --recursive https://github.com/alembic/alembic.git
 
-      - name: Build Alembic & PyAlembic
+      # ============================================================
+      # Configure Alembic
+      # ============================================================
+      - name: Configure Alembic
         run: |
+          set -eux
+
           mkdir -p alembic/build
           cd alembic/build
-          # CMake 실행 시 Python 경로를 명시해 주는 것이 안전합니다.
+
+          PYTHON_BIN=$(which python)
+          BOOST_LIB=$(find $HOME/boost-install/lib -name "libboost_python${PY_SHORT}.dylib*" | head -n 1)
+
+          echo "BOOST_LIB=$BOOST_LIB"
+
           cmake .. \
-            -DUSE_PYALEMBIC=ON \
-            -DUSE_HDF5=OFF \
+            -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DPYTHON_EXECUTABLE=$(which python3)
-          
-          make -j$(sysctl -n hw.ncpu)
+            -DUSE_PYALEMBIC=ON \
+            -DALEMBIC_SHARED_LIBS=ON \
+            -DPython3_EXECUTABLE="$PYTHON_BIN" \
+            -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
+            -DBOOST_ROOT="$HOME/boost-install" \
+            -DBoost_NO_SYSTEM_PATHS=ON \
+            -DBoost_USE_STATIC_LIBS=OFF \
+            -DBoost_USE_MULTITHREADED=ON \
+            -DBoost_USE_STATIC_RUNTIME=OFF \
+            -DBoost_INCLUDE_DIR="$HOME/boost-install/include" \
+            -DBoost_LIBRARY_DIR="$HOME/boost-install/lib" \
+            -DBoost_PYTHON_LIBRARY="$BOOST_LIB" \
+            -DImath_ROOT="$HOME/imath-install"
 
-      - name: Build Wheel
+      # ============================================================
+      # Build Alembic
+      # ============================================================
+      - name: Build Alembic
         run: |
-          cd alembic/python/PyAlembic
-          python3 setup.py bdist_wheel
+          set -eux
+          cd alembic/build
+          ninja -j$(sysctl -n hw.ncpu)
 
-      - name: Collect Artifacts
+      # ============================================================
+      # Verify ABI (macOS용 otool)
+      # ============================================================
+      - name: Verify Alembic ABI
         run: |
-          mkdir -p release_assets
-          find alembic -name "*.whl" -exec cp {} release_assets/ \;
-          find alembic/build -name "*.dylib" -exec cp {} release_assets/ \;
+          set -eux
 
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+          ALEMBIC_SO=$(find alembic/build -name "*cpython-${PY_SHORT}*.so" | head -n 1)
+          echo "ALEMBIC_SO=$ALEMBIC_SO"
+
+          echo "=== OTOOL CHECK ==="
+          otool -L "$ALEMBIC_SO" | grep -E 'boost|python|Imath|Half|PyImath' || true
+
+      # ============================================================
+      # Package (Blender add-on용 모든 파일)
+      # ============================================================
+      - name: Package macos_${{ matrix.python-version }}
+        run: |
+          set -eux
+
+          mkdir -p macos_${PY_SHORT}
+
+          ALEMBIC_SO=$(find alembic/build -name "*cpython-${PY_SHORT}*.so" | head -n 1)
+          cp "$ALEMBIC_SO" macos_${PY_SHORT}/
+
+          # Alembic core
+          find alembic/build -name "libAlembic*.dylib" -exec cp {} macos_${PY_SHORT}/ \;
+
+          # Imath + PyImath (필수)
+          cp $HOME/imath-install/lib/libImath*.dylib macos_${PY_SHORT}/ || true
+          cp $HOME/imath-install/lib/libHalf*.dylib macos_${PY_SHORT}/ || true
+          cp $HOME/imath-install/lib/libPyImath*.dylib macos_${PY_SHORT}/ || true
+
+          # Boost Python
+          cp $HOME/boost-install/lib/libboost_python${PY_SHORT}.dylib* macos_${PY_SHORT}/ || true
+
+          ls -la macos_${PY_SHORT}
+
+      # ============================================================
+      # Upload Artifact
+      # ============================================================
+      - name: Upload Artifact macos_${{ matrix.python-version }}
+        uses: actions/upload-artifact@v4
         with:
-          files: release_assets/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: macos_${{ matrix.python-version | replace('.', '') }}
+          path: macos_${PY_SHORT}
