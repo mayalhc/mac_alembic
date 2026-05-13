@@ -2,10 +2,9 @@ name: Build Alembic + PyAlembic (macOS)
 
 on:
   push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-
+    branches:
+      - main     # main 브랜치에 push될 때 자동 실행
+  workflow_dispatch: # 수동 실행도 유지
 jobs:
   build:
     runs-on: macos-13
