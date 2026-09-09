@@ -85,9 +85,27 @@ jobs:
             -DCMAKE_PREFIX_PATH="$HOME/boost-install" \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DBUILD_SHARED_LIBS=ON -DPYTHON=ON \
-            -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT="$HOME/boost-install" \
-            -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN"
+            -DBoost_NO_BOOST_CMAKE=ON -DBoost_NO_SYSTEM_PATHS=ON \
+            -DBOOST_ROOT="$HOME/boost-install" \
+            -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew \
+            -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN" \
+            -DPython_ROOT_DIR="$(dirname $(dirname $PY_BIN))" \
+            2>&1 | tee imath-configure.log
           cmake --build build-imath --target install
+
+      - name: PyImath must exist, or Alembic cannot link
+        run: |
+          set -eux
+          # Imath skips PyImath silently when Boost.Python or numpy is missing.
+          # The failure only shows up much later, as
+          #   Target "alembic" links to Imath::PyImath_Python3_13 ... not found
+          grep -iE 'python|boost|numpy' imath-configure.log || true
+          ls -l "$HOME/imath-install/lib" | grep -i pyimath || true
+          ls "$HOME/imath-install/lib/cmake/Imath/" || true
+          if [ -z "$(find "$HOME/imath-install" -name 'libPyImath*' -print -quit)" ]; then
+            echo 'FAIL: Imath built without PyImath - see the configure log above'
+            exit 1
+          fi
 
       - name: Alembic + PyAlembic
         run: |
@@ -100,8 +118,12 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DBUILD_SHARED_LIBS=ON \
             -DUSE_PYALEMBIC=ON -DUSE_HDF5=OFF -DUSE_TESTS=OFF \
-            -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT="$HOME/boost-install" \
-            -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN"
+            -DBoost_NO_BOOST_CMAKE=ON -DBoost_NO_SYSTEM_PATHS=ON \
+            -DBOOST_ROOT="$HOME/boost-install" \
+            -DImath_ROOT="$HOME/imath-install" \
+            -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew \
+            -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN" \
+            -DPython_ROOT_DIR="$(dirname $(dirname $PY_BIN))"
           cmake --build alembic/build -j3
 
       # Keep the cpython-XYZ-darwin tag on the three binding modules. Python
