@@ -1,0 +1,194 @@
+name: macalembic (arm64, 3.11 + 3.13, drop-in)
+
+# Produces the macalembic/ folder GroomForge PRO ships, with both Python
+# versions in it, ready to drop straight into the add-on.
+#
+# Two things go wrong in build-release.yml and are fixed here:
+#
+#  1. It packages the ABI-tagged module (alembic.cpython-313-darwin.so) into a
+#     per-version folder, but those folders then get merged by hand and the tag
+#     stripped to a plain "alembic.so". Both versions collapse onto the same
+#     name and one silently overwrites the other - which is why the shipping
+#     folder carries every 3.13 support dylib but no 3.13 binding, and why Macs
+#     on Blender 5.2/5.3 (Python 3.13) get "Alembic library not available".
+#     The tag is what lets Python pick the right module, exactly like the
+#     cp311/cp313 .pyd files on Windows. Keep it.
+#
+#  2. There is no install_name_tool pass, so the artifacts still point at the
+#     runner's $HOME/boost-install and /opt/homebrew paths. Anything that keeps
+#     such a path cannot load on a customer's Mac.
+#
+# The final job merges both matrix builds into one folder and fails if any
+# dependency still reaches outside it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      boost_version:
+        description: "Boost version"
+        default: "1.91.0"
+      imath_tag:
+        description: "Imath git tag"
+        default: "v3.1.12"
+      alembic_tag:
+        description: "Alembic git tag"
+        default: "1.8.7"
+
+jobs:
+  build:
+    runs-on: macos-14                      # arm64; macos-13 is Intel
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]   # Blender 4.2-5.0 / 5.2-5.3
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Pin the interpreter
+        run: |
+          set -eux
+          python -VV
+          echo "PY_SHORT=$(python -c 'import sys;print("%d%d"%sys.version_info[:2])')" >> $GITHUB_ENV
+          echo "PYVER=${{ matrix.python-version }}" >> $GITHUB_ENV
+          echo "PY_BIN=$(which python)" >> $GITHUB_ENV
+          echo "PY_INC=$(python -c 'import sysconfig;print(sysconfig.get_paths()["include"])')" >> $GITHUB_ENV
+          echo "PY_LIB=$(python -c 'import sysconfig;print(sysconfig.get_config_var("LIBDIR"))')" >> $GITHUB_ENV
+
+      - run: brew install cmake ninja
+      - run: python -m pip install numpy      # PyImath needs it at configure time
+
+      - name: Boost.Python against this interpreter
+        run: |
+          set -eux
+          BU=$(echo "${{ github.event.inputs.boost_version }}" | tr '.' '_')
+          curl -fL -o boost.tar.gz \
+            "https://archives.boost.io/release/${{ github.event.inputs.boost_version }}/source/boost_${BU}.tar.gz"
+          tar xf boost.tar.gz && cd "boost_${BU}"
+          echo "using python : ${PYVER} : ${PY_BIN} : ${PY_INC} : ${PY_LIB} ;" > "$HOME/user-config.jam"
+          ./bootstrap.sh --with-libraries=python --prefix="$HOME/boost-install"
+          ./b2 -j3 --with-python python=${PYVER} link=shared variant=release \
+               cxxflags="-std=c++17 -arch arm64" linkflags="-arch arm64" install
+
+      - name: Imath + PyImath
+        run: |
+          set -eux
+          git clone --depth 1 -b ${{ github.event.inputs.imath_tag }} \
+            https://github.com/AcademySoftwareFoundation/Imath.git
+          cmake -S Imath -B build-imath -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$HOME/imath-install" \
+            -DCMAKE_PREFIX_PATH="$HOME/boost-install" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DBUILD_SHARED_LIBS=ON -DPYTHON=ON \
+            -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT="$HOME/boost-install" \
+            -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN"
+          cmake --build build-imath --target install
+
+      - name: Alembic + PyAlembic
+        run: |
+          set -eux
+          git clone --depth 1 --recursive -b ${{ github.event.inputs.alembic_tag }} \
+            https://github.com/alembic/alembic.git
+          cmake -S alembic -B alembic/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$HOME/boost-install;$HOME/imath-install" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DBUILD_SHARED_LIBS=ON \
+            -DUSE_PYALEMBIC=ON -DUSE_HDF5=OFF -DUSE_TESTS=OFF \
+            -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT="$HOME/boost-install" \
+            -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN"
+          cmake --build alembic/build -j3
+
+      # Keep the cpython-XYZ-darwin tag on the three binding modules. Python
+      # resolves it itself, so 3.11 and 3.13 can share one folder.
+      - name: Stage, keeping the ABI tag
+        run: |
+          set -eux
+          OUT="macos_${PY_SHORT}"; mkdir -p "$OUT"; cd "$OUT"
+          for mod in alembic imath imathnumpy; do
+            f=$(find "$GITHUB_WORKSPACE/alembic/build" "$HOME/imath-install" \
+                  -name "${mod}.cpython-${PY_SHORT}*.so" | head -1)
+            [ -n "$f" ] && cp "$f" .
+          done
+          find "$GITHUB_WORKSPACE/alembic/build" -name "libAlembic*.dylib" -not -type l -exec cp {} . \;
+          cp "$HOME/imath-install/lib/"libPyImath*Python*.dylib . 2>/dev/null || true
+          cp "$HOME/imath-install/lib/"libImath*.dylib . 2>/dev/null || true
+          cp "$HOME/boost-install/lib/libboost_python${PY_SHORT}.dylib" .
+          cp "$PY_LIB/libpython${PYVER}.dylib" .
+          ls -l
+
+      - name: Rewrite every dependency to @loader_path
+        run: |
+          set -eux
+          cd "macos_${PY_SHORT}"
+          for f in *.so *.dylib; do
+            [ -e "$f" ] || continue
+            install_name_tool -id "@loader_path/$f" "$f" || true
+            otool -L "$f" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+              case "$dep" in @loader_path/*) continue ;; esac
+              base=$(basename "$dep")
+              [ -e "$base" ] && install_name_tool -change "$dep" "@loader_path/$base" "$f"
+            done
+          done
+          codesign --force -s - *.so *.dylib
+
+      - name: Import it the way the add-on does
+        run: |
+          set -eu
+          cd "macos_${PY_SHORT}"
+          python - <<'PY'
+          import importlib, os, sys
+          sys.path.insert(0, os.getcwd())
+          Abc  = importlib.import_module("alembic.Abc")
+          Geom = importlib.import_module("alembic.AbcGeom")
+          im   = importlib.import_module("imath")
+          arch = Abc.OArchive("smoke.abc")
+          xf   = Geom.OXform(arch.getTop(), "Groom_Root")
+          cur  = Geom.OCurves(xf, "Hair_Curves")
+          del cur, xf, arch
+          print("OK", sys.version.split()[0], os.path.getsize("smoke.abc"), "bytes")
+          PY
+          rm -f smoke.abc
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos_${{ env.PY_SHORT }}
+          path: macos_${{ env.PY_SHORT }}
+
+  merge:
+    needs: build
+    runs-on: macos-14
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: parts }
+
+      - name: Merge into one macalembic/ and check it is self-contained
+        run: |
+          set -eux
+          mkdir -p macalembic
+          # Shared, Python-independent libraries are identical between the two
+          # builds, so either copy will do. The ABI-tagged modules and the
+          # per-version dylibs all have distinct names and simply coexist.
+          cp -n parts/*/* macalembic/
+          cd macalembic
+          ls -l
+          echo "--- one binding module per Python version must be present ---"
+          for tag in 311 313; do
+            ls alembic.cpython-${tag}-darwin.so >/dev/null || { echo "FAIL: 3.${tag#3} binding missing"; exit 1; }
+          done
+          echo "--- nothing may point outside the folder ---"
+          if otool -L *.so *.dylib | grep -E '^[[:space:]]+(/opt|/usr/local|/Users|@rpath)'; then
+            echo "FAIL: build-machine path survived"; exit 1
+          fi
+          for f in *.so *.dylib; do printf '%-46s ' "$f"; lipo -archs "$f"; done
+          echo "OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macalembic
+          path: macalembic
