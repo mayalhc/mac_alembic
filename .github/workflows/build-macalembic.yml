@@ -196,17 +196,28 @@ jobs:
       # resolves it itself, so 3.11 and 3.13 can share one folder.
       # Keep the cpython-XYZ-darwin tag on the three binding modules. Python
       # resolves it itself, so 3.11 and 3.13 can share one folder.
-      - name: Stage, keeping the ABI tag
+      # This build emits plain alembic.so / imath.so / imathnumpy.so - no ABI
+      # tag, despite WITH_SOABI. Two Python versions therefore collide on the
+      # same three filenames, and merging them by hand is what silently dropped
+      # the 3.13 modules from the shipped folder. Add the tag here: Python
+      # accepts alembic.cpython-313-darwin.so as an extension module and picks
+      # the matching one itself, exactly like cp311/cp313 .pyd on Windows.
+      - name: Stage with an ABI tag so both versions can share a folder
         run: |
           set -eux
           echo "--- python modules produced by the builds ---"
           find "$GITHUB_WORKSPACE/alembic/build" "$HOME/imath-install" -name "*.so" | sort
           OUT="macos_${PY_SHORT}"; mkdir -p "$OUT"
           for mod in alembic imath imathnumpy; do
+            # prefer an already-tagged file if a future build ever emits one
             f=$(find "$GITHUB_WORKSPACE/alembic/build" "$HOME/imath-install" \
                   -name "${mod}.cpython-${PY_SHORT}*.so" | head -1 || true)
+            if [ -z "$f" ]; then
+              f=$(find "$GITHUB_WORKSPACE/alembic/build" "$HOME/imath-install" \
+                    -name "${mod}.so" | head -1 || true)
+            fi
             if [ -n "$f" ]; then
-              cp "$f" "$OUT/"
+              cp "$f" "$OUT/${mod}.cpython-${PY_SHORT}-darwin.so"
             else
               echo "note: no ${mod} module for python ${PYVER}"
             fi
@@ -218,10 +229,9 @@ jobs:
           cp "$HOME/boost-install/lib/libboost_python${PY_SHORT}.dylib" "$OUT/"
           cp "$PY_LIB/libpython${PYVER}.dylib" "$OUT/"
           ls -l "$OUT"
-          # The alembic module is the whole point of the build - without it the
-          # folder is just support libraries, which is exactly how the shipped
-          # 3.13 half ended up unusable.
-          test -n "$(find "$OUT" -name "alembic.cpython-${PY_SHORT}*.so" -print -quit)"
+          # Without the alembic module the folder is only support libraries -
+          # which is precisely the unusable state the shipped 3.13 half was in.
+          test -f "$OUT/alembic.cpython-${PY_SHORT}-darwin.so"
 
       - name: Rewrite every dependency to @loader_path
         run: |
@@ -293,7 +303,11 @@ jobs:
           ls -l
           echo "--- one binding module per Python version must be present ---"
           for tag in 311 313; do
-            ls alembic.cpython-${tag}-darwin.so >/dev/null || { echo "FAIL: 3.${tag#3} binding missing"; exit 1; }
+            for mod in alembic imath imathnumpy; do
+              if [ ! -f "${mod}.cpython-${tag}-darwin.so" ]; then
+                echo "FAIL: ${mod} missing for python 3.${tag#3}"; exit 1
+              fi
+            done
           done
           echo "--- nothing may point outside the folder ---"
           if otool -L *.so *.dylib | grep -E '^[[:space:]]+(/opt|/usr/local|/Users|@rpath)'; then
