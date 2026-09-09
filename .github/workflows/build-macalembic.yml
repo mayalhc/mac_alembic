@@ -28,8 +28,8 @@ on:
         description: "Boost version"
         default: "1.91.0"
       imath_tag:
-        description: "Imath git tag"
-        default: "v3.1.12"
+        description: "Imath git tag (3.2+ exports PyImath as an Imath component)"
+        default: "v3.2.0"
       alembic_tag:
         description: "Alembic git tag"
         default: "1.8.7"
@@ -106,6 +106,14 @@ jobs:
             echo 'FAIL: Imath built without PyImath - see the configure log above'
             exit 1
           fi
+          # The library existing is not enough: Alembic links against a CMake
+          # target, so the package has to export one.
+          if ! grep -rqE 'PyImath' "$HOME/imath-install/lib/cmake/"; then
+            echo 'FAIL: Imath installed PyImath libraries but exports no PyImath target'
+            grep -rl . "$HOME/imath-install/lib/cmake/" || true
+            exit 1
+          fi
+          grep -rhoE 'Imath::PyImath[A-Za-z0-9_]*' "$HOME/imath-install/lib/cmake/" | sort -u
 
       - name: Alembic + PyAlembic
         run: |
@@ -123,7 +131,9 @@ jobs:
             -DImath_ROOT="$HOME/imath-install" \
             -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew \
             -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN" \
-            -DPython_ROOT_DIR="$(dirname $(dirname $PY_BIN))"
+            -DPython_ROOT_DIR="$(dirname $(dirname $PY_BIN))" \
+            2>&1 | tee abc-configure.log
+          grep -iE "Imath|PyImath|Boost|Found Python" abc-configure.log || true
           cmake --build alembic/build -j3
 
       # Keep the cpython-XYZ-darwin tag on the three binding modules. Python
