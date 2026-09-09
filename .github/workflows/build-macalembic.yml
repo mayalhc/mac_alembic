@@ -124,14 +124,21 @@ jobs:
             echo 'FAIL: Imath built without PyImath - see the configure log above'
             exit 1
           fi
-          # The library existing is not enough: Alembic links against a CMake
-          # target, so the package has to export one.
-          if ! grep -rqE 'PyImath' "$HOME/imath-install/lib/cmake/"; then
-            echo 'FAIL: Imath installed PyImath libraries but exports no PyImath target'
-            grep -rl . "$HOME/imath-install/lib/cmake/" || true
+          # The library existing is not enough. Alembic does
+          #   find_package(Imath COMPONENTS PyImath)
+          # and ImathConfig.cmake answers that by include()ing PyImathTargets.cmake,
+          # so THAT file is what has to be installed. Grepping the directory for the
+          # string "PyImath" is not a test - ImathConfig.cmake always contains it.
+          echo '--- installed Imath cmake package ---'
+          ls -l "$HOME/imath-install/lib/cmake/Imath/"
+          echo '--- exported target names ---'
+          grep -rhoE '(Imath|PyImath)::[A-Za-z0-9_]+' "$HOME/imath-install/lib/cmake/" | sort -u
+          if [ ! -f "$HOME/imath-install/lib/cmake/Imath/PyImathTargets.cmake" ]; then
+            echo 'FAIL: PyImathTargets.cmake was not installed, so'
+            echo '      find_package(Imath COMPONENTS PyImath) cannot succeed and'
+            echo '      Alembic falls back to a target name nothing defines.'
             exit 1
           fi
-          grep -rhoE 'Imath::PyImath[A-Za-z0-9_]*' "$HOME/imath-install/lib/cmake/" | sort -u
 
       - name: Alembic + PyAlembic
         run: |
