@@ -8,117 +8,57 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
-    permissions:
+    runs-on: macos-13
+    permissions: # 릴리스 생성을 위해 필수
       contents: write
-
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.13"]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Set PY_SHORT
-        run: |
-          PY_SHORT=$(echo "${{ matrix.python-version }}" | tr -d '.')
-          echo "PY_SHORT=$PY_SHORT" >> $GITHUB_ENV
+          python-version: '3.10' # 버전을 명시하는 것이 안정적입니다.
 
       - name: Install Dependencies
         run: |
-          brew install cmake ninja
-
-      - name: Verify Python
-        run: |
-          which python
-          python --version
-          python -c "
-          import sys
-          import sysconfig
-          print('Executable:', sys.executable)
-          print('Include:', sysconfig.get_paths()['include'])
-          "
-
-      - name: Build Boost Python ${{ matrix.python-version }}
-        run: |
-          set -eux
-          BOOST_VERSION=1.91.0
-          BOOST_FOLDER=boost_1_91_0
-          curl -L https://archives.boost.io/release/${BOOST_VERSION}/source/${BOOST_FOLDER}.tar.gz -o boost.tar.gz
-          tar -xf boost.tar.gz
-          cd ${BOOST_FOLDER}
-          PYTHON_BIN=$(which python)
-          ./bootstrap.sh --with-python="$PYTHON_BIN" --with-python-version=${{ matrix.python-version }}
-          ./b2 -j$(sysctl -n hw.ncpu) link=shared runtime-link=shared threading=multi variant=release python=${{ matrix.python-version }} --with-python install --prefix=$HOME/boost-install
-          echo "BOOST_ROOT=$HOME/boost-install" >> $GITHUB_ENV
-          ls -la $HOME/boost-install/lib | grep boost_python
-
-      - name: Install NumPy for Imath
-        run: |
-          set -eux
-          python -m pip install numpy
-
-      - name: Build Imath with PyImath
-        run: |
-          set -eux
-          git clone --depth 1 https://github.com/AcademySoftwareFoundation/Imath.git Imath
-          mkdir -p Imath/build && cd Imath/build
-          PYTHON_BIN=$(which python)
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DPYTHON=ON -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=$HOME/imath-install -DPython3_EXECUTABLE="$PYTHON_BIN" -DBoost_ROOT="$HOME/boost-install" -DBoost_NO_SYSTEM_PATHS=ON -DBoost_USE_MULTITHREADED=ON -DBoost_USE_STATIC_LIBS=OFF
-          ninja -j$(sysctl -n hw.ncpu)
-          ninja install
-          echo "IMATH_ROOT=$HOME/imath-install" >> $GITHUB_ENV
-          ls -la $HOME/imath-install/lib
+          brew install cmake boost imath openexr zlib
 
       - name: Clone Alembic
         run: |
-          set -eux
-          git clone --recursive https://github.com/alembic/alembic.git
+          git clone https://github.com/alembic/alembic.git
+          cd alembic
+          git submodule update --init --recursive
 
-      - name: Configure Alembic
+      - name: Build Alembic & PyAlembic
         run: |
-          set -eux
-          mkdir -p alembic/build && cd alembic/build
-          PYTHON_BIN=$(which python)
-          BOOST_LIB=$(find $HOME/boost-install/lib -name "libboost_python${PY_SHORT}.dylib*" | head -n 1)
-          echo "BOOST_LIB=$BOOST_LIB"
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DUSE_PYALEMBIC=ON -DALEMBIC_SHARED_LIBS=ON -DPython3_EXECUTABLE="$PYTHON_BIN" -DPYTHON_EXECUTABLE="$PYTHON_BIN" -DBOOST_ROOT="$HOME/boost-install" -DBoost_NO_SYSTEM_PATHS=ON -DBoost_USE_STATIC_LIBS=OFF -DBoost_USE_MULTITHREADED=ON -DBoost_USE_STATIC_RUNTIME=OFF -DBoost_INCLUDE_DIR="$HOME/boost-install/include" -DBoost_LIBRARY_DIR="$HOME/boost-install/lib" -DBoost_PYTHON_LIBRARY="$BOOST_LIB" -DImath_ROOT="$HOME/imath-install"
-
-      - name: Build Alembic
-        run: |
-          set -eux
+          mkdir -p alembic/build
           cd alembic/build
-          ninja -j$(sysctl -n hw.ncpu)
+          # CMake 실행 시 Python 경로를 명시해 주는 것이 안전합니다.
+          cmake .. \
+            -DUSE_PYALEMBIC=ON \
+            -DUSE_HDF5=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYTHON_EXECUTABLE=$(which python3)
+          
+          make -j$(sysctl -n hw.ncpu)
 
-      - name: Verify ABI
+      - name: Build Wheel
         run: |
-          set -eux
-          ALEMBIC_SO=$(find alembic/build -name "*cpython-${PY_SHORT}*.so" | head -n 1)
-          echo "ALEMBIC_SO=$ALEMBIC_SO"
-          echo "=== OTOOL CHECK ==="
-          otool -L "$ALEMBIC_SO" | grep -E 'boost|python|Imath|Half|PyImath' || true
+          cd alembic/python/PyAlembic
+          python3 setup.py bdist_wheel
 
-      - name: Package macos_${{ matrix.python-version }}
+      - name: Collect Artifacts
         run: |
-          set -eux
-          mkdir -p macos_${PY_SHORT}
-          ALEMBIC_SO=$(find alembic/build -name "*cpython-${PY_SHORT}*.so" | head -n 1)
-          cp "$ALEMBIC_SO" macos_${PY_SHORT}/
-          find alembic/build -name "libAlembic*.dylib" -exec cp {} macos_${PY_SHORT}/ \;
-          cp $HOME/imath-install/lib/libImath*.dylib macos_${PY_SHORT}/ || true
-          cp $HOME/imath-install/lib/libHalf*.dylib macos_${PY_SHORT}/ || true
-          cp $HOME/imath-install/lib/libPyImath*.dylib macos_${PY_SHORT}/ || true
-          cp $HOME/boost-install/lib/libboost_python${PY_SHORT}.dylib* macos_${PY_SHORT}/ || true
-          ls -la macos_${PY_SHORT}
+          mkdir -p release_assets
+          find alembic -name "*.whl" -exec cp {} release_assets/ \;
+          find alembic/build -name "*.dylib" -exec cp {} release_assets/ \;
 
-      - name: Upload Artifact macos_${{ matrix.python-version }}
-        uses: actions/upload-artifact@v4
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
-          name: macos_${{ env.PY_SHORT }}
-          path: macos_${{ env.PY_SHORT }}
+          files: release_assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
