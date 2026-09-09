@@ -174,9 +174,19 @@ jobs:
           set -eux
           git clone --depth 1 --recursive -b ${{ github.event.inputs.alembic_tag }} \
             https://github.com/alembic/alembic.git
-          # see the note above this step
-          sed -i '' 's/Python::Python/Python::Module/' alembic/python/PyAlembic/CMakeLists.txt
-          grep -n 'Python::' alembic/python/PyAlembic/CMakeLists.txt
+          # Stop PyAlembic linking libpython. 1.8.7 lists ${PYTHON_LIBRARIES} -
+          # the full path to the framework - while master uses Python::Python,
+          # the target meant for EMBEDDING an interpreter. Either way the module
+          # ends up owning a second interpreter, which segfaults inside any
+          # process that already has one, Blender included. Blank the variable
+          # (only on its own line, so the STREQUAL fallback above keeps its
+          # if/endif intact) and retarget the modern spelling.
+          sed -i '' 's/^[[:space:]]*\${PYTHON_LIBRARIES}[[:space:]]*$//' \
+            alembic/python/PyAlembic/CMakeLists.txt
+          sed -i '' 's/Python::Python/Python::Module/' \
+            alembic/python/PyAlembic/CMakeLists.txt
+          sed -n '/TARGET_LINK_LIBRARIES(alembic/,/)/p' \
+            alembic/python/PyAlembic/CMakeLists.txt
           cmake -S alembic -B alembic/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$HOME/boost-install;$HOME/imath-install" \
