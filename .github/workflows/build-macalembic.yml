@@ -71,8 +71,17 @@ jobs:
           tar xf boost.tar.gz && cd "boost_${BU}"
           echo "using python : ${PYVER} : ${PY_BIN} : ${PY_INC} : ${PY_LIB} ;" > "$HOME/user-config.jam"
           ./bootstrap.sh --with-libraries=python --prefix="$HOME/boost-install"
+          # bootstrap writes its own 'using python' line; show it, because if it
+          # picked a different interpreter than user-config.jam the python
+          # library silently comes out for the wrong version - or not at all.
+          cat project-config.jam
           ./b2 -j3 --with-python python=${PYVER} link=shared variant=release \
                cxxflags="-std=c++17 -arch arm64" linkflags="-arch arm64" install
+          ls -l "$HOME/boost-install/lib"
+          if [ -z "$(find "$HOME/boost-install/lib" -name 'libboost_python*' -print -quit)" ]; then
+            echo 'FAIL: Boost.Python was not built - check the project-config.jam above'
+            exit 1
+          fi
 
       - name: Imath + PyImath
         run: |
@@ -87,6 +96,9 @@ jobs:
             -DBUILD_SHARED_LIBS=ON -DPYTHON=ON \
             -DBoost_NO_BOOST_CMAKE=ON -DBoost_NO_SYSTEM_PATHS=ON \
             -DBOOST_ROOT="$HOME/boost-install" \
+            -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
+            -DCMAKE_POLICY_DEFAULT_CMP0167=OLD \
+            -DBoost_ROOT="$HOME/boost-install" \
             -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew \
             -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN" \
             -DPython_ROOT_DIR="$(dirname $(dirname $PY_BIN))" \
@@ -128,6 +140,9 @@ jobs:
             -DUSE_PYALEMBIC=ON -DUSE_HDF5=OFF -DUSE_TESTS=OFF \
             -DBoost_NO_BOOST_CMAKE=ON -DBoost_NO_SYSTEM_PATHS=ON \
             -DBOOST_ROOT="$HOME/boost-install" \
+            -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
+            -DCMAKE_POLICY_DEFAULT_CMP0167=OLD \
+            -DBoost_ROOT="$HOME/boost-install" \
             -DImath_ROOT="$HOME/imath-install" \
             -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew \
             -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN" \
