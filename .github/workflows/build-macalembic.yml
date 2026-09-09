@@ -321,9 +321,17 @@ jobs:
           set -eux
           mkdir -p macalembic
           # Shared, Python-independent libraries are identical between the two
-          # builds, so either copy will do. The ABI-tagged modules and the
-          # per-version dylibs all have distinct names and simply coexist.
-          cp -n parts/*/* macalembic/
+          # builds, so the first copy wins. Done by hand rather than with cp -n:
+          # on macOS cp -n returns 1 when it skips a file, and every duplicate
+          # here is expected, so set -e would abort on the first one.
+          for d in parts/*/; do
+            for f in "$d"*; do
+              b=$(basename "$f")
+              if [ ! -e "macalembic/$b" ]; then
+                cp "$f" "macalembic/$b"
+              fi
+            done
+          done
           cd macalembic
           ls -l
           echo "--- one binding module per Python version must be present ---"
