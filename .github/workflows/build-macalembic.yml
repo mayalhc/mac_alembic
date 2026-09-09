@@ -140,6 +140,33 @@ jobs:
             exit 1
           fi
 
+      - name: Give Alembic the target name it falls back to
+        run: |
+          set -eux
+          # Imath 3.2 exports the binding as the target Imath::PyImath. The
+          # _Python3_13 part is only the library file's OUTPUT_NAME, not a target.
+          # Alembic tries Imath::PyImath first and, when that lookup fails, falls
+          # back to the Imath 3.1-era name Imath::PyImath_Python<maj>_<min>. That
+          # fallback path calls find_package(Imath) WITHOUT the PyImath component,
+          # so PyImathTargets.cmake is never included and the name exists nowhere.
+          # Define it here, pointing at the target Imath really exports.
+          CFG="$HOME/imath-install/lib/cmake/Imath/ImathConfig.cmake"
+          PYTGT="Imath::PyImath_Python${PYVER%%.*}_${PYVER##*.}"
+          {
+            echo ''
+            echo '# --- added by build-macalembic.yml ---'
+            echo 'if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/PyImathTargets.cmake")'
+            echo '  include("${CMAKE_CURRENT_LIST_DIR}/PyImathTargets.cmake")'
+            echo '  set(Imath_PyImath_FOUND TRUE)'
+            echo "  if(TARGET Imath::PyImath AND NOT TARGET $PYTGT)"
+            echo "    add_library($PYTGT INTERFACE IMPORTED)"
+            echo "    set_target_properties($PYTGT PROPERTIES"
+            echo '      INTERFACE_LINK_LIBRARIES Imath::PyImath)'
+            echo '  endif()'
+            echo 'endif()'
+          } >> "$CFG"
+          tail -16 "$CFG"
+
       - name: Alembic + PyAlembic
         run: |
           set -eux
