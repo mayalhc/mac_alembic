@@ -99,6 +99,8 @@ jobs:
             -DCMAKE_PREFIX_PATH="$HOME/boost-install" \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DBUILD_SHARED_LIBS=ON -DPYTHON=ON \
+            -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-undefined,dynamic_lookup" \
+            -DCMAKE_MODULE_LINKER_FLAGS="-Wl,-undefined,dynamic_lookup" \
             -DBoost_NO_BOOST_CMAKE=ON -DBoost_NO_SYSTEM_PATHS=ON \
             -DBOOST_ROOT="$HOME/boost-install" \
             -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
@@ -178,6 +180,8 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DBUILD_SHARED_LIBS=ON \
             -DUSE_PYALEMBIC=ON -DUSE_HDF5=OFF -DUSE_TESTS=OFF \
+            -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-undefined,dynamic_lookup" \
+            -DCMAKE_MODULE_LINKER_FLAGS="-Wl,-undefined,dynamic_lookup" \
             -DBoost_NO_BOOST_CMAKE=ON -DBoost_NO_SYSTEM_PATHS=ON \
             -DBOOST_ROOT="$HOME/boost-install" \
             -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
@@ -227,7 +231,7 @@ jobs:
           cp "$HOME/imath-install/lib/"libPyImath*Python*.dylib "$OUT/" 2>/dev/null || true
           cp "$HOME/imath-install/lib/"libImath*.dylib "$OUT/" 2>/dev/null || true
           cp "$HOME/boost-install/lib/libboost_python${PY_SHORT}.dylib" "$OUT/"
-          cp "$PY_LIB/libpython${PYVER}.dylib" "$OUT/"
+          # deliberately NOT copying libpython - see the note above the step
           ls -l "$OUT"
           # Without the alembic module the folder is only support libraries -
           # which is precisely the unusable state the shipped 3.13 half was in.
@@ -247,9 +251,8 @@ jobs:
             while read -r dep; do
               case "$dep" in
                 @loader_path/*) continue ;;
-                *Python.framework*/Python)
-                  # basename is "Python", so the name match below cannot catch it
-                  install_name_tool -change "$dep" "@loader_path/libpython${PYVER}.dylib" "$f"
+                *Python.framework*/Python|*libpython*)
+                  echo "still links a python library: $f -> $dep" >> /tmp/pylinks.txt
                   continue ;;
               esac
               base=$(basename "$dep")
@@ -260,11 +263,20 @@ jobs:
           done
           rm -f /tmp/deps.txt
           codesign --force -s - *.so *.dylib
+          if [ -s /tmp/pylinks.txt ]; then
+            echo 'FAIL: something still links a python library. Loading that'
+            echo '      alongside the interpreter already in the process is what'
+            echo '      segfaults - the module must resolve Python symbols from'
+            echo '      the host instead.'
+            cat /tmp/pylinks.txt
+            exit 1
+          fi
 
       - name: Import it the way the add-on does
         run: |
           set -eu
           cd "macos_${PY_SHORT}"
+          for f in *.so; do echo "[$f]"; otool -L "$f" | tail -n +2; done
           python - <<'PY'
           import importlib, os, sys
           sys.path.insert(0, os.getcwd())
