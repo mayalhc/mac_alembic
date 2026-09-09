@@ -194,21 +194,34 @@ jobs:
 
       # Keep the cpython-XYZ-darwin tag on the three binding modules. Python
       # resolves it itself, so 3.11 and 3.13 can share one folder.
+      # Keep the cpython-XYZ-darwin tag on the three binding modules. Python
+      # resolves it itself, so 3.11 and 3.13 can share one folder.
       - name: Stage, keeping the ABI tag
         run: |
           set -eux
-          OUT="macos_${PY_SHORT}"; mkdir -p "$OUT"; cd "$OUT"
+          echo "--- python modules produced by the builds ---"
+          find "$GITHUB_WORKSPACE/alembic/build" "$HOME/imath-install" -name "*.so" | sort
+          OUT="macos_${PY_SHORT}"; mkdir -p "$OUT"
           for mod in alembic imath imathnumpy; do
             f=$(find "$GITHUB_WORKSPACE/alembic/build" "$HOME/imath-install" \
-                  -name "${mod}.cpython-${PY_SHORT}*.so" | head -1)
-            [ -n "$f" ] && cp "$f" .
+                  -name "${mod}.cpython-${PY_SHORT}*.so" | head -1 || true)
+            if [ -n "$f" ]; then
+              cp "$f" "$OUT/"
+            else
+              echo "note: no ${mod} module for python ${PYVER}"
+            fi
           done
-          find "$GITHUB_WORKSPACE/alembic/build" -name "libAlembic*.dylib" -not -type l -exec cp {} . \;
-          cp "$HOME/imath-install/lib/"libPyImath*Python*.dylib . 2>/dev/null || true
-          cp "$HOME/imath-install/lib/"libImath*.dylib . 2>/dev/null || true
-          cp "$HOME/boost-install/lib/libboost_python${PY_SHORT}.dylib" .
-          cp "$PY_LIB/libpython${PYVER}.dylib" .
-          ls -l
+          find "$GITHUB_WORKSPACE/alembic/build" -name "libAlembic*.dylib" -not -type l \
+            -exec cp {} "$OUT/" \;
+          cp "$HOME/imath-install/lib/"libPyImath*Python*.dylib "$OUT/" 2>/dev/null || true
+          cp "$HOME/imath-install/lib/"libImath*.dylib "$OUT/" 2>/dev/null || true
+          cp "$HOME/boost-install/lib/libboost_python${PY_SHORT}.dylib" "$OUT/"
+          cp "$PY_LIB/libpython${PYVER}.dylib" "$OUT/"
+          ls -l "$OUT"
+          # The alembic module is the whole point of the build - without it the
+          # folder is just support libraries, which is exactly how the shipped
+          # 3.13 half ended up unusable.
+          test -n "$(find "$OUT" -name "alembic.cpython-${PY_SHORT}*.so" -print -quit)"
 
       - name: Rewrite every dependency to @loader_path
         run: |
@@ -217,17 +230,25 @@ jobs:
           for f in *.so *.dylib; do
             [ -e "$f" ] || continue
             install_name_tool -id "@loader_path/$f" "$f" || true
-            # framework reference first - its basename is "Python", so the
-            # name-matching rule further down cannot catch it
-            otool -L "$f" | awk '{print $1}' | grep -E 'Python\.framework.*/Python$' | while read -r fw; do
-              install_name_tool -change "$fw" "@loader_path/libpython${PYVER}.dylib" "$f"
-            done
-            otool -L "$f" | tail -n +2 | awk '{print $1}' | while read -r dep; do
-              case "$dep" in @loader_path/*) continue ;; esac
+            # A failed test must never be the last command in the loop body:
+            # with set -e that makes the whole loop exit 1 the moment a system
+            # library like libc++ is not in the folder, which it never is.
+            otool -L "$f" | awk 'NR>1 {print $1}' > /tmp/deps.txt
+            while read -r dep; do
+              case "$dep" in
+                @loader_path/*) continue ;;
+                *Python.framework*/Python)
+                  # basename is "Python", so the name match below cannot catch it
+                  install_name_tool -change "$dep" "@loader_path/libpython${PYVER}.dylib" "$f"
+                  continue ;;
+              esac
               base=$(basename "$dep")
-              [ -e "$base" ] && install_name_tool -change "$dep" "@loader_path/$base" "$f"
-            done
+              if [ -e "$base" ]; then
+                install_name_tool -change "$dep" "@loader_path/$base" "$f"
+              fi
+            done < /tmp/deps.txt
           done
+          rm -f /tmp/deps.txt
           codesign --force -s - *.so *.dylib
 
       - name: Import it the way the add-on does
