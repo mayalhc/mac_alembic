@@ -82,6 +82,11 @@ jobs:
             echo 'FAIL: Boost.Python was not built - check the project-config.jam above'
             exit 1
           fi
+          # Imath does find_package(Boost REQUIRED COMPONENTS python) with no
+          # version suffix, so FindBoost looks for a plain libboost_python.
+          # b2 only produces the versioned name; add the plain alias.
+          ln -sf "libboost_python${PY_SHORT}.dylib" "$HOME/boost-install/lib/libboost_python.dylib"
+          ls -l "$HOME/boost-install/lib"
 
       - name: Imath + PyImath
         run: |
@@ -99,6 +104,7 @@ jobs:
             -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
             -DCMAKE_POLICY_DEFAULT_CMP0167=OLD \
             -DBoost_ROOT="$HOME/boost-install" \
+            -DBoost_PYTHON_VERSION="${PYVER}" \
             -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew \
             -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN" \
             -DPython_ROOT_DIR="$(dirname $(dirname $PY_BIN))" \
@@ -143,6 +149,7 @@ jobs:
             -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
             -DCMAKE_POLICY_DEFAULT_CMP0167=OLD \
             -DBoost_ROOT="$HOME/boost-install" \
+            -DBoost_PYTHON_VERSION="${PYVER}" \
             -DImath_ROOT="$HOME/imath-install" \
             -DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew \
             -DPython_EXECUTABLE="$PY_BIN" -DPython3_EXECUTABLE="$PY_BIN" \
@@ -176,6 +183,11 @@ jobs:
           for f in *.so *.dylib; do
             [ -e "$f" ] || continue
             install_name_tool -id "@loader_path/$f" "$f" || true
+            # framework reference first - its basename is "Python", so the
+            # name-matching rule further down cannot catch it
+            otool -L "$f" | awk '{print $1}' | grep -E 'Python\.framework.*/Python$' | while read -r fw; do
+              install_name_tool -change "$fw" "@loader_path/libpython${PYVER}.dylib" "$f"
+            done
             otool -L "$f" | tail -n +2 | awk '{print $1}' | while read -r dep; do
               case "$dep" in @loader_path/*) continue ;; esac
               base=$(basename "$dep")
